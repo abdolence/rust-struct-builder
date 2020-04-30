@@ -220,7 +220,7 @@ fn generate_factory_method(fields : &Vec<ParsedField>) -> proc_macro2::TokenStre
     let generated_factory_assignments = generated_factory_assignments(&fields);
 
     quote! {
-        fn new(#(#generated_new_params)*) -> Self {
+        pub fn new(#(#generated_new_params)*) -> Self {
             Self {
                 #(#generated_factory_assignments)*
             }
