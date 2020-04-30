@@ -1,0 +1,24 @@
+[package]
+name = "rsb_derive"
+version = "0.1.0"
+authors = ["Abdulla Abdurakhmanov <me@abdolence.dev>"]
+edition = "2018"
+license = "Apache-2.0"
+description = "An opinionated macros implementation for Rust struct builder pattern"
+homepage = "https://github.com/abdolence/rust-struct-builder"
+repository = "https://github.com/abdolence/rust-struct-builder"
+documentation = "https://github.com/abdolence/rust-struct-builder"
+keywords = ["value", "class", "newtype"]
+categories = ["rust-patterns"]
+readme = "../README.md"
+include = ["Cargo.toml", "src/**/*.rs", "../README.md", "../LICENSE"]
+
+[lib]
+name = "rsb_derive"
+proc-macro = true
+path = "src/lib.rs"
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "1.0", features = [ "full" ]}

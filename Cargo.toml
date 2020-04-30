@@ -1,0 +1,6 @@
+[workspace]
+
+members = [
+    "rsb_derive",
+    "rsb_test"
+]
