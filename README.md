@@ -4,10 +4,11 @@
 
 ## Motivation
 A derive macros to support a builder pattern for Rust:
-- Everything except Option<> fields in structs are required, so you 
-don't need any additional attributes to indicate it
+- Everything except `Option<>` fields in structs are required, so you 
+don't need any additional attributes to indicate it, 
+and the presence of required params is checked at the compile time (not at the runtime).
 - To create new struct instances there is ::new and an auxiliary struct with only required attributes
-to compensate Rust's named params inability. 
+to compensate the Rust's named params inability. 
 
 ## Usage
 
@@ -48,8 +49,8 @@ let s2 : SimpleStrValueStruct = SimpleStrValueStructInit {
 // Working with instances
 let updated = 
     s1.clone()
-      .with_opt_field1("hey".into()) // Option<> is a bare argument
-      .without_opt_field2() // you can reset Option<> if you need like this
+      .with_opt_field1("hey".into()) // for Option<> fields you specify a bare argument
+      .without_opt_field2() // you can reset Option<> if you need it
       .with_req_field2(10); // you can update required params as well
 
 ``` 
