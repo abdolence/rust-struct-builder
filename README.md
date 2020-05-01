@@ -71,7 +71,7 @@ let s1 : SimpleStrValueStruct =
         .with_opt_field1("hey".into())
         .with_opt_field2(10);
 
-// Mutable example (in case you're really need it)
+// Mutable example (in case you really need it)
 let mut s1 : SimpleStrValueStruct =
     SimpleStrValueStruct::from(
         SimpleStrValueStructInit {
