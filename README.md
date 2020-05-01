@@ -19,6 +19,8 @@ Add this to your `Cargo.toml`:
 rsb_derive = "0.1"
 ```
 
+### Marking the derive attribute on your structures:
+
 ```rust
 // Import it
 use rsb_derive::Builder;
@@ -30,8 +32,12 @@ struct MyStructure {
     req_field2: i32,
     opt_field1: Option<String>,
     opt_field2: Option<i32>
-};
+}
+```
 
+### Using the builder pattern on your structures 
+
+```rust
 // Creating instances
 
 // Option #1:
@@ -65,6 +71,24 @@ let s1 : SimpleStrValueStruct =
         .with_opt_field1("hey".into())
         .with_opt_field2(10);
 
+// Mutable example (in case you're really need it)
+let mut s1 : SimpleStrValueStruct =
+    SimpleStrValueStruct::from(
+        SimpleStrValueStructInit {
+            req_field1 : "hey".into(),
+            req_field2 : 0
+        }
+    );
+
+s1
+    .opt_field1("hey".into()) // no prefix with for mutable setter    
+    .opt_field2(10)
+    .field2(15)
+    .reset_opt_field2(); // mutable reset function for optional fields
+
+    
+
+
 ``` 
 
 You're free to use the Rust `Default` if you'd like to on your own structs or on auxiliary init structs. 
@@ -72,7 +96,7 @@ This macros doesn't interfere with this pattern.
 
 The macros generates the following functions and instances for your structures:
 - `with/without_<field_name>` : immutable setters for fields
-- `set/reset_<field_name>` : mutable setters for fields
+- `<field_name>/reset_<field_name>` : mutable setters for fields
 - `new` : factory method with required fields as arguments
 - `From<>` instance from an an auxiliary init struct definition with only required fields. 
 The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()` 
