@@ -59,4 +59,20 @@ mod tests {
         assert_eq!(s1.req_field1,String::from("hey"));
     }
 
+    #[test]
+    fn all_together_test() {
+        let s1 : SimpleStrValueStruct =
+            SimpleStrValueStruct::from(
+                SimpleStrValueStructInit {
+                    req_field1 : "hey".into(),
+                    req_field2 : 0
+                }
+            )
+                .with_opt_field1("hey".into())
+                .with_opt_field2(10);
+
+        assert_eq!(s1.req_field1,String::from("hey"));
+        assert_eq!(s1.opt_field1,Some(String::from("hey")));
+    }
+
 }

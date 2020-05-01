@@ -7,8 +7,8 @@ A derive macros to support a builder pattern for Rust:
 - Everything except `Option<>` fields in structs are required, so you 
 don't need any additional attributes to indicate it, 
 and the presence of required params is checked at the compile time (not at the runtime).
-- To create new struct instances there is ::new and an auxiliary struct with only required attributes
-to compensate the Rust's named params inability. 
+- To create new struct instances there is `::new` and an auxiliary init struct definition 
+with only required fields (to compensate the Rust's named params inability). 
 
 ## Usage
 
@@ -53,7 +53,30 @@ let updated =
       .without_opt_field2() // you can reset Option<> if you need it
       .with_req_field2(10); // you can update required params as well
 
+// All together example
+
+let s1 : SimpleStrValueStruct =
+    SimpleStrValueStruct::from(
+        SimpleStrValueStructInit {
+            req_field1 : "hey".into(),
+            req_field2 : 0
+        }
+    )
+        .with_opt_field1("hey".into())
+        .with_opt_field2(10);
+
 ``` 
+
+You're free to use the Rust `Default` if you'd like to on your own structs or on auxiliary init structs. 
+This macros doesn't interfere with this pattern.
+
+The macros generates the following functions and instances for your structures:
+- `with/without_<field_name>` : immutable setters for fields
+- `set/reset_<field_name>` : mutable setters for fields
+- `new` : factory method with required fields as arguments
+- `From<>` instance from an an auxiliary init struct definition with only required fields. 
+The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()` 
+functions from it.
 
 ## Licence
 Apache Software License (ASL)
