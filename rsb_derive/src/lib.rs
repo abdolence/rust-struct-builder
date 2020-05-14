@@ -17,12 +17,12 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                 let struct_generic_params: Vec<&TypeParam> =
                     struct_item.generics.params.iter().map( |ga| {
                         match ga {
-                            GenericParam::Type(ref ty) => Some(ty),
+                            GenericParam::Type(ref ty) => {
+                                Some(ty)
+                            }
                             _ => None
                         }
                     }).flatten().collect();
-                //let struct_generic_params_idents : Vec<&Ident> = struct_generic_params.iter().map(|ty| &ty.ident).collect();
-
                 let struct_fields = parse_fields(&named_fields);
 
                 let generated_factory_method = generate_factory_method(&struct_fields);
