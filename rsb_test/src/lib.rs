@@ -11,6 +11,12 @@ mod tests {
         opt_field2: Option<i32>
     }
 
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct GenericValueStruct<T> {
+        gen_field1 : T,
+        opt_gen_field1 : Option<T>
+    }
+
     #[test]
     fn fill_str_value_struct() {
         let s1 = SimpleStrValueStruct {
@@ -93,6 +99,20 @@ mod tests {
 
         assert_eq!(s1.req_field1,String::from("hey"));
         assert_eq!(s1.opt_field1,Some(String::from("hey")));
+    }
+
+    #[test]
+    fn generic_struct_test() {
+        let g1 : GenericValueStruct<String> =
+            GenericValueStruct::from(
+                GenericValueStructInit {
+                    gen_field1 : "hey".into()
+                }
+            )
+                .with_opt_gen_field1("hey".into());
+
+        assert_eq!(g1.gen_field1,String::from("hey"));
+        assert_eq!(g1.opt_gen_field1,Some(String::from("hey")));
     }
 
 }

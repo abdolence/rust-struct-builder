@@ -1,9 +1,10 @@
 //! Rust struct builder implementation macro
-
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::*;
 use syn::*;
+
+
 
 #[proc_macro_derive(Builder)]
 pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
@@ -13,16 +14,37 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
         Item::Struct(ref struct_item) => match struct_item.fields {
             Fields::Named(ref named_fields) => {
                 let struct_name = &struct_item.ident;
+                let struct_generic_params: Vec<&TypeParam> =
+                    struct_item.generics.params.iter().map( |ga| {
+                        match ga {
+                            GenericParam::Type(ref ty) => Some(ty),
+                            _ => None
+                        }
+                    }).flatten().collect();
+                //let struct_generic_params_idents : Vec<&Ident> = struct_generic_params.iter().map(|ty| &ty.ident).collect();
+
                 let struct_fields = parse_fields(&named_fields);
 
                 let generated_factory_method = generate_factory_method(&struct_fields);
                 let generated_fields_methods = generate_fields_functions(&struct_fields);
 
-                let generated_aux_init_struct = generate_init_struct(&struct_name, &struct_fields);
+                let generated_aux_init_struct = generate_init_struct(&struct_name, &struct_fields, &struct_generic_params);
+
+                let struct_decl : proc_macro2::TokenStream =
+                    if struct_generic_params.is_empty() {
+                        quote! {
+                            impl #struct_name
+                        }
+                    }
+                    else {
+                        quote! {
+                            impl<#(#struct_generic_params)*> #struct_name<#(#struct_generic_params)*>
+                        }
+                    };
 
                 let output = quote! {
                     #[allow(dead_code)]
-                    impl #struct_name {
+                    #struct_decl {
                         #generated_factory_method
                         #(#generated_fields_methods)*
                     }
@@ -138,10 +160,32 @@ fn parse_field(field : &Field) -> ParsedField {
     }
 }
 
+fn field_contains_type(field_type : &Type, tp  : &TypeParam ) -> bool {
+    match field_type {
+        Type::Path(ref path) => {
+            path.path.segments.iter().any(|s| {
+                s.ident.eq(&tp.ident) ||
+                    match s.arguments {
+                        PathArguments::AngleBracketed(ref params) => {
+                            params.args.iter().any(|ga| {
+                                match ga {
+                                    GenericArgument::Type(ref ty) => field_contains_type(&ty,&tp),
+                                    _ => false
+                                }
+                            })
+                        }
+                        _ => false
+                    }
+            })
+        }
+        _ => false
+    }
+
+}
+
 fn generate_fields_functions(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
     fields.iter().map(generate_field_functions).collect()
 }
-
 
 fn generate_field_functions(field : &ParsedField) -> proc_macro2::TokenStream {
     let field_name = &field.ident;
@@ -261,7 +305,7 @@ fn generated_factory_assignments(fields : &Vec<ParsedField>) -> Vec<proc_macro2:
         .collect()
 }
 
-fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>) -> proc_macro2::TokenStream {
+fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,  struct_generic_params: &Vec<&TypeParam>) -> proc_macro2::TokenStream {
     let init_struct_name = format_ident!("{}Init", struct_name);
 
     let required_fields : Vec<ParsedField> =
@@ -274,17 +318,40 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>) -> pro
     let generated_init_fields = generate_init_fields(&required_fields);
     let generated_init_new_params = generate_init_new_params(&required_fields);
 
-    quote! {
-        struct #init_struct_name {
-            #(#generated_init_fields)*
-        }
+    let init_fields_generic_params : Vec<&&TypeParam> =  required_fields.iter().map(|f| {
+        struct_generic_params.iter().find(|gp| {
+            field_contains_type(&f.parsed_field_type.field_type,gp)
+        })
+    }).flatten().collect();
 
-        impl From<#init_struct_name> for #struct_name {
-             fn from(value: #init_struct_name) -> Self {
-                #struct_name::new(
-                    #(#generated_init_new_params)*
-                )
-             }
+    if init_fields_generic_params.is_empty() {
+        quote! {
+            struct #init_struct_name {
+                #(#generated_init_fields)*
+            }
+
+            impl From<#init_struct_name> for #struct_name {
+                 fn from(value: #init_struct_name) -> Self {
+                    #struct_name::new(
+                        #(#generated_init_new_params)*
+                    )
+                 }
+            }
+        }
+    }
+    else {
+        quote! {
+            struct #init_struct_name<#(#init_fields_generic_params)*> {
+                #(#generated_init_fields)*
+            }
+
+            impl<#(#init_fields_generic_params)*> From<#init_struct_name<#(#init_fields_generic_params)*>> for #struct_name<#(#struct_generic_params)*> {
+                  fn from(value: #init_struct_name<#(#init_fields_generic_params)*> ) -> Self {
+                    #struct_name::new(
+                        #(#generated_init_new_params)*
+                    )
+                 }
+            }
         }
     }
 }
