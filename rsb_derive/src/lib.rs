@@ -159,19 +159,19 @@ fn generate_field_functions(field : &ParsedField) -> proc_macro2::TokenStream {
 
             quote! {
                 #[inline]
-                fn #set_field_name(&mut self, value : #ga_type) -> &mut Self {
+                pub fn #set_field_name(&mut self, value : #ga_type) -> &mut Self {
                     self.#field_name = Some(value);
                     self
                 }
 
                 #[inline]
-                fn #reset_field_name(&mut self) -> &mut Self {
+                pub fn #reset_field_name(&mut self) -> &mut Self {
                     self.#field_name = None;
                     self
                 }
 
                 #[inline]
-                fn #with_field_name(self, value : #ga_type) -> Self {
+                pub fn #with_field_name(self, value : #ga_type) -> Self {
                     Self {
                         #field_name : Some(value),
                         .. self
@@ -179,7 +179,7 @@ fn generate_field_functions(field : &ParsedField) -> proc_macro2::TokenStream {
                 }
 
                 #[inline]
-                fn #without_field_name(self) -> Self {
+                pub fn #without_field_name(self) -> Self {
                     Self {
                         #field_name : None,
                         .. self
@@ -190,13 +190,13 @@ fn generate_field_functions(field : &ParsedField) -> proc_macro2::TokenStream {
         _ => {
             quote! {
                 #[inline]
-                fn #set_field_name(&mut self, value : #field_type) -> &mut Self {
+                pub fn #set_field_name(&mut self, value : #field_type) -> &mut Self {
                     self.#field_name = value;
                     self
                 }
 
                 #[inline]
-                fn #with_field_name(self, value : #field_type) -> Self {
+                pub fn #with_field_name(self, value : #field_type) -> Self {
                     Self {
                         #field_name : value,
                         .. self

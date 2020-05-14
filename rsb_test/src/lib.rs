@@ -57,6 +57,7 @@ mod tests {
             .with_req_field2(10);
 
         assert_eq!(s1.req_field1,String::from("hey"));
+        assert_eq!(s11.req_field1,String::from("hey"));
     }
 
     #[test]
