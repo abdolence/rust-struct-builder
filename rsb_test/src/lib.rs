@@ -12,13 +12,22 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, Builder)]
-    struct GenericValueStruct<T> {
+    struct GenericValueStruct<T,B> {
         gen_field1 : T,
-        opt_gen_field1 : Option<T>
+        opt_gen_field1 : Option<T>,
+        opt_gen_field2 : Option<B>
     }
+
 
     #[derive(Debug, Clone, PartialEq, Builder)]
     struct GenericValueStructWithBounds<T : Copy + Clone> {
+        gen_field1 : T,
+        opt_gen_field1 : Option<T>,
+        opt_gen_field2 : Option<String>
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct GenericValueStructWithBoundsWhere<T> where T : Copy + Clone {
         gen_field1 : T,
         opt_gen_field1 : Option<T>
     }
@@ -109,7 +118,7 @@ mod tests {
 
     #[test]
     fn generic_struct_test() {
-        let g1 : GenericValueStruct<String> =
+        let g1 : GenericValueStruct<String,i64> =
             GenericValueStruct::from(
                 GenericValueStructInit {
                     gen_field1 : "hey".into()

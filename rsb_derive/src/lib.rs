@@ -24,14 +24,21 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
 
                 let struct_generic_params_idents : Vec<&Ident> = struct_generic_params.iter().map(|gp| &gp.ident).collect();
 
+                let struct_generic_where_decl  : proc_macro2::TokenStream =
+                    struct_item.generics.where_clause.as_ref().map_or(quote! {}, |wh| quote! { #wh });
+
                 let struct_fields = parse_fields(&named_fields);
 
                 let generated_factory_method = generate_factory_method(&struct_fields);
                 let generated_fields_methods = generate_fields_functions(&struct_fields);
 
-                let generated_aux_init_struct = generate_init_struct(&struct_name, &struct_fields, &struct_generic_params, &struct_generic_params_idents);
-
-                //let generated_struct_generic_params_with_bounds = generate_struct_generics_params_with_bounds(&struct_generic_params);
+                let generated_aux_init_struct = generate_init_struct(
+                    &struct_name,
+                    &struct_fields,
+                    &struct_generic_params,
+                    &struct_generic_params_idents,
+                    struct_item.generics.where_clause.as_ref()
+                );
 
                 let struct_decl : proc_macro2::TokenStream =
                     if struct_generic_params.is_empty() {
@@ -41,7 +48,7 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                     }
                     else {
                         quote! {
-                            impl<#(#struct_generic_params)*> #struct_name<#(#struct_generic_params_idents)*>
+                            impl< #(#struct_generic_params),* > #struct_name < #(#struct_generic_params_idents),* > #struct_generic_where_decl
                         }
                     };
 
@@ -310,7 +317,8 @@ fn generated_factory_assignments(fields : &Vec<ParsedField>) -> Vec<proc_macro2:
 
 fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
                         struct_generic_params: &Vec<&TypeParam>,
-                        struct_generic_params_idents : &Vec<&Ident>) -> proc_macro2::TokenStream {
+                        struct_generic_params_idents : &Vec<&Ident>,
+                        struct_where_decl : Option<&syn::WhereClause>) -> proc_macro2::TokenStream {
     let init_struct_name = format_ident!("{}Init", struct_name);
 
     let required_fields : Vec<ParsedField> =
@@ -329,7 +337,10 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
         })
     }).flatten().collect();
 
-    let init_fields_generic_params_idents : Vec<&Ident> = struct_generic_params.iter().map(|gp| &gp.ident).collect();
+    let init_fields_generic_params_idents : Vec<&Ident> = init_fields_generic_params.iter().map(|gp| &gp.ident).collect();
+
+    let struct_generic_where_decl  : proc_macro2::TokenStream =
+        struct_where_decl.as_ref().map_or(quote! {}, |wh| quote! { #wh });
 
     if init_fields_generic_params.is_empty() {
         quote! {
@@ -348,12 +359,12 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
     }
     else {
         quote! {
-            struct #init_struct_name<#(#init_fields_generic_params)*> {
+            struct #init_struct_name< #(#init_fields_generic_params),* > {
                 #(#generated_init_fields)*
             }
 
-            impl<#(#init_fields_generic_params)*> From<#init_struct_name<#(#init_fields_generic_params_idents)*>> for #struct_name<#(#struct_generic_params_idents)*> {
-                  fn from(value: #init_struct_name<#(#struct_generic_params_idents)*> ) -> Self {
+            impl < #(#struct_generic_params),* > From< #init_struct_name< #(#init_fields_generic_params_idents),* > > for #struct_name< #(#struct_generic_params_idents),* > #struct_generic_where_decl {
+                  fn from(value: #init_struct_name<#(#init_fields_generic_params_idents),*> ) -> Self {
                     #struct_name::new(
                         #(#generated_init_new_params)*
                     )
