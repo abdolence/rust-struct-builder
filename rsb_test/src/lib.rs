@@ -17,6 +17,12 @@ mod tests {
         opt_gen_field1 : Option<T>
     }
 
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct GenericValueStructWithBounds<T : Copy + Clone> {
+        gen_field1 : T,
+        opt_gen_field1 : Option<T>
+    }
+
     #[test]
     fn fill_str_value_struct() {
         let s1 = SimpleStrValueStruct {
@@ -113,6 +119,20 @@ mod tests {
 
         assert_eq!(g1.gen_field1,String::from("hey"));
         assert_eq!(g1.opt_gen_field1,Some(String::from("hey")));
+    }
+
+    #[test]
+    fn generic_struct_with_bounds_test() {
+        let g1 : GenericValueStructWithBounds<i64> =
+            GenericValueStructWithBounds::from(
+                GenericValueStructWithBoundsInit {
+                    gen_field1 : 17
+                }
+            )
+                .with_opt_gen_field1(37);
+
+        assert_eq!(g1.gen_field1,17);
+        assert_eq!(g1.opt_gen_field1,Some(37));
     }
 
 }
