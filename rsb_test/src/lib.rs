@@ -144,4 +144,18 @@ mod tests {
         assert_eq!(g1.opt_gen_field1,Some(37));
     }
 
+    #[test]
+    fn generic_struct_with_bounds_where_test() {
+        let g1 : GenericValueStructWithBoundsWhere<i64> =
+            GenericValueStructWithBoundsWhere::from(
+                GenericValueStructWithBoundsWhereInit {
+                    gen_field1 : 17
+                }
+            )
+                .with_opt_gen_field1(37);
+
+        assert_eq!(g1.gen_field1,17);
+        assert_eq!(g1.opt_gen_field1,Some(37));
+    }
+
 }
