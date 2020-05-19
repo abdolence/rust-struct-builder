@@ -54,6 +54,16 @@ mod tests {
         assert_eq!(s1c.without_opt_field1().opt_field1,None);
     }
 
+    #[derive(Debug, Clone,PartialEq, Builder)]
+    struct StructWithDefault {
+        req_field1: String,
+        #[default="10"]
+        req_field2: i32,
+        opt_field1: Option<String>,
+        #[default="Some(11)"]
+        opt_field2: Option<i32>
+    }
+
     #[test]
     fn new_str_value_struct() {
         let s1 : SimpleStrValueStruct = SimpleStrValueStruct::new(
@@ -156,6 +166,18 @@ mod tests {
 
         assert_eq!(g1.gen_field1,17);
         assert_eq!(g1.opt_gen_field1,Some(37));
+    }
+
+    #[test]
+    fn struct_with_defaults_test() {
+        let sd1 = StructWithDefault::from(
+            StructWithDefaultInit {
+                req_field1 : "test".into()
+            }
+        );
+
+        assert_eq! ( sd1.req_field2, 10 );
+        assert_eq! ( sd1.opt_field2, Some(11) );
     }
 
 }

@@ -4,9 +4,9 @@
 
 ## Motivation
 A derive macros to support a builder pattern for Rust:
-- Everything except `Option<>` fields in structs are required, so you 
-don't need any additional attributes to indicate it, 
-and the presence of required params is checked at the compile time (not at the runtime).
+- Everything except `Option<>` fields and explicitly defined `default` attribute in structs are required, so you 
+don't need any additional attributes to indicate it, and the presence of required params 
+is checked at the compile time (not at the runtime).
 - To create new struct instances there is `::new` and an auxiliary init struct definition 
 with only required fields (to compensate the Rust's named params inability). 
 
@@ -91,8 +91,31 @@ s1
 
 ``` 
 
-You're free to use the Rust `Default` if you'd like to on your own structs or on auxiliary init structs. 
-This macros doesn't interfere with this pattern.
+### Defaults
+
+While you're free to use the Rust `Default` on your own structs or on auxiliary init structs 
+this lib intentionally ignores this approach and gives you an auxiliary `default` attribute 
+to manage this like: 
+
+```rust
+#[derive(Debug, Clone, PartialEq, Builder)]
+struct StructWithDefault {
+    req_field1: String,
+    #[default="10"]
+    req_field2: i32, // default here make this field behave like optional
+
+    opt_field1: Option<String>,
+    #[default="Some(11)"]
+    opt_field2: Option<i32> // default works also on optional fields
+}
+
+let my_struct : StructWithDefault = StructWithDefault::from(
+    StructWithDefaultInit {
+        req_field1 : "test".into()
+    }
+);
+```
+
 
 The macros generates the following functions and instances for your structures:
 - `with/without_<field_name>` : immutable setters for fields

@@ -3,10 +3,9 @@ use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::*;
 use syn::*;
+use std::ops::Index;
 
-
-
-#[proc_macro_derive(Builder)]
+#[proc_macro_derive(Builder, attributes(default))]
 pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
     let item: syn::Item = syn::parse(input).expect("failed to parse input");
     let span = Span::call_site();
@@ -103,12 +102,17 @@ struct ParsedFieldType {
 #[derive(Clone)]
 struct ParsedField {
     ident : Ident,
-    parsed_field_type : ParsedFieldType
+    parsed_field_type : ParsedFieldType,
+    default_tokens : Option<proc_macro2::TokenStream>
 }
 
 impl ParsedField {
     fn is_option(&self) -> bool {
         self.parsed_field_type.parsed_type.as_ref().filter(|t| t.is_option()).is_some()
+    }
+
+    fn is_required_field(&self) -> bool {
+        !self.is_option() && self.default_tokens.is_none()
     }
 }
 
@@ -164,9 +168,11 @@ fn parse_fields(fields : &FieldsNamed) -> Vec<ParsedField> {
 }
 
 fn parse_field(field : &Field) -> ParsedField {
+
     ParsedField {
         ident : field.ident.as_ref().unwrap().clone(),
-        parsed_field_type : parse_field_type(&field.ty)
+        parsed_field_type : parse_field_type(&field.ty),
+        default_tokens : parse_field_default_attr(&field)
     }
 }
 
@@ -267,11 +273,11 @@ fn generate_factory_method(fields : &Vec<ParsedField>) -> proc_macro2::TokenStre
         fields
             .clone()
             .into_iter()
-            .filter(|f| !f.is_option())
+            .filter(|f| f.is_required_field())
             .collect();
 
     let generated_new_params = generate_new_params(&required_fields);
-    let generated_factory_assignments = generated_factory_assignments(&fields);
+    let generated_factory_assignments = generate_factory_assignments(&fields);
 
     quote! {
         pub fn new(#(#generated_new_params)*) -> Self {
@@ -296,12 +302,17 @@ fn generate_new_params(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStre
         .collect()
 }
 
-fn generated_factory_assignments(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
+fn generate_factory_assignments(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
     fields
         .into_iter()
         .map(|f| {
             let param_name = &f.ident;
-            if f.is_option() {
+            if f.default_tokens.is_some() {
+                let param_default_value = f.default_tokens.as_ref().unwrap();
+                quote! {
+                    #param_name : #param_default_value,
+                }
+            } else if f.is_option() {
                 quote! {
                     #param_name : None,
                 }
@@ -315,6 +326,7 @@ fn generated_factory_assignments(fields : &Vec<ParsedField>) -> Vec<proc_macro2:
         .collect()
 }
 
+
 fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
                         struct_generic_params: &Vec<&TypeParam>,
                         struct_generic_params_idents : &Vec<&Ident>,
@@ -325,7 +337,7 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
         fields
             .clone()
             .into_iter()
-            .filter(|f| !f.is_option())
+            .filter(|f| f.is_required_field())
             .collect();
 
     let generated_init_fields = generate_init_fields(&required_fields);
@@ -398,4 +410,35 @@ fn generate_init_new_params(fields : &Vec<ParsedField>) -> Vec<proc_macro2::Toke
             }
         })
         .collect()
+}
+
+fn parse_field_default_attr(field : &Field) -> Option<proc_macro2::TokenStream> {
+    field.attrs.iter().find(|a| {
+        match a.style {
+            AttrStyle::Outer => {
+                a.path.segments.first().iter().any (|s| s.ident.eq("default"))
+            },
+            _ => false
+        }
+    }).and_then(|a| {
+       let attr_tokens : &Vec<proc_macro2::TokenTree> = &a.tokens.clone().into_iter().collect();
+        if attr_tokens.len() > 1 {
+            match attr_tokens.last().unwrap() {
+                proc_macro2::TokenTree::Literal(lit) => {
+                    let lit_str = format!("{}",lit);
+                    let lit_unquoted_str = lit_str.index(1..lit_str.len()-1);
+                    let lit_stream : proc_macro2::TokenStream = syn::parse_str(lit_unquoted_str).unwrap();
+                    Some(
+                        quote! {
+                            #lit_stream
+                        }
+                    )
+                }
+                _ => None
+            }
+        }
+        else {
+            None
+        }
+    })
 }

@@ -13,4 +13,4 @@ readme = "README.md"
 include = ["Cargo.toml", "src/**/*.rs", "README.md", "../LICENSE"]
 
 [dependencies]
-rsb_derive = { version = "0.1", path = "../rsb_derive"}
+rsb_derive = { version = "0.2", path = "../rsb_derive"}
