@@ -16,7 +16,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rsb_derive = "0.1"
+rsb_derive = "0.2"
 ```
 
 ### Marking the derive attribute on your structures:
