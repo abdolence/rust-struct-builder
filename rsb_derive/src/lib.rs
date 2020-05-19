@@ -1,4 +1,65 @@
 //! Rust struct builder implementation macro
+//!
+//! ## Motivation
+//! A derive macros to support a builder pattern for Rust:
+//! - Everything except `Option<>` fields and explicitly defined `default` attribute in structs are required, so you
+//! don't need any additional attributes to indicate it, and the presence of required params
+//! is checked at the compile time (not at the runtime).
+//! - To create new struct instances there is `::new` and an auxiliary init struct definition
+//! with only required fields (to compensate the Rust's named params inability).
+//!
+//! ## Usage:
+//!
+//! ```
+//! // Import it
+//! use rsb_derive::Builder;
+//!
+//! // And use it on your structs
+//! #[derive(Clone,Builder)]
+//! struct MyStructure {
+//!     req_field1: String,
+//!     req_field2: i32,
+//!     opt_field1: Option<String>,
+//!     opt_field2: Option<i32>
+//! }
+//!
+//! let s1 : SimpleStrValueStruct =
+//!     SimpleStrValueStruct::from(
+//!         SimpleStrValueStructInit {
+//!              req_field1 : "hey".into(),
+//!              req_field2 : 0
+//!         }
+//!     )
+//!     .with_opt_field1("hey".into())
+//!     .with_opt_field2(10);
+//! ```
+//!
+//! The macros generates the following functions and instances for your structures:
+//! - `with/without_<field_name>` : immutable setters for fields
+//! - `<field_name>/reset_<field_name>` : mutable setters for fields
+//! - `new` : factory method with required fields as arguments
+//! - `From<>` instance from an an auxiliary init struct definition with only required fields.
+//! The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()`
+//! functions from it.
+//!
+//! ## Defaults
+//!
+//! ```
+//! #[derive(Debug, Clone, PartialEq, Builder)]
+//! struct StructWithDefault {
+//!     req_field1: String,
+//!     #[default="10"]
+//!     req_field2: i32, // default here make this field behave like optional
+//!
+//!     opt_field1: Option<String>,
+//!     #[default="Some(11)"]
+//!     opt_field2: Option<i32> // default works also on optional fields
+//! }
+//! ```
+//!
+//! Details and source code: [https://github.com/abdolence/rust-struct-builder]: https://github.com/abdolence/rust-struct-builder
+//!
+
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::*;
