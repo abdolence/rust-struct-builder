@@ -417,7 +417,7 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
 
     if init_fields_generic_params.is_empty() {
         quote! {
-            struct #init_struct_name {
+            pub struct #init_struct_name {
                 #(#generated_init_fields)*
             }
 
@@ -432,7 +432,7 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
     }
     else {
         quote! {
-            struct #init_struct_name< #(#init_fields_generic_params),* > {
+            pub struct #init_struct_name< #(#init_fields_generic_params),* > {
                 #(#generated_init_fields)*
             }
 
