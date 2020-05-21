@@ -19,6 +19,14 @@ Add this to your `Cargo.toml`:
 rsb_derive = "0.2"
 ```
 
+The macros generates the following functions and instances for your structures:
+- `with/without/opt_<field_name>` : immutable setters for fields (`opt` is an additional setter for `Option<>` input argument)
+- `<field_name>/reset/mopt_<field_name>` : mutable setters for fields (`mopt` is an additional setter for `Option<>` input argument)
+- `new` : factory method with required fields as arguments
+- `From<>` instance from an an auxiliary init struct definition with only required fields. 
+The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()` 
+functions from it.
+
 ### Marking the derive attribute on your structures:
 
 ```rust
@@ -57,6 +65,7 @@ let updated =
     s1.clone()
       .with_opt_field1("hey".into()) // for Option<> fields you specify a bare argument
       .without_opt_field2() // you can reset Option<> if you need it
+      .opt_opt_field1(Some(("hey".into())) // you can use opt_<field> to provide Option<> inputs
       .with_req_field2(10); // you can update required params as well
 
 // All together example
@@ -116,14 +125,6 @@ let my_struct : StructWithDefault = StructWithDefault::from(
 );
 ```
 
-
-The macros generates the following functions and instances for your structures:
-- `with/without_<field_name>` : immutable setters for fields
-- `<field_name>/reset_<field_name>` : mutable setters for fields
-- `new` : factory method with required fields as arguments
-- `From<>` instance from an an auxiliary init struct definition with only required fields. 
-The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()` 
-functions from it.
 
 ## Licence
 Apache Software License (ASL)

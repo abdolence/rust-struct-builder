@@ -270,6 +270,8 @@ fn generate_field_functions(field : &ParsedField) -> proc_macro2::TokenStream {
     let reset_field_name = format_ident!("reset_{}",field_name);
     let with_field_name = format_ident!("with_{}",field_name);
     let without_field_name = format_ident!("without_{}",field_name);
+    let opt_field_name = format_ident!("opt_{}",field_name);
+    let mut_opt_field_name = format_ident!("mopt_{}",field_name);
 
     let field_type = &field.parsed_field_type.field_type;
 
@@ -292,6 +294,12 @@ fn generate_field_functions(field : &ParsedField) -> proc_macro2::TokenStream {
                 }
 
                 #[inline]
+                pub fn #mut_opt_field_name(&mut self, value : #field_type) -> &mut Self {
+                    self.#field_name = value;
+                    self
+                }
+
+                #[inline]
                 pub fn #with_field_name(self, value : #ga_type) -> Self {
                     Self {
                         #field_name : Some(value),
@@ -303,6 +311,14 @@ fn generate_field_functions(field : &ParsedField) -> proc_macro2::TokenStream {
                 pub fn #without_field_name(self) -> Self {
                     Self {
                         #field_name : None,
+                        .. self
+                    }
+                }
+
+                #[inline]
+                pub fn #opt_field_name(self, value : #field_type) -> Self {
+                    Self {
+                        #field_name : value,
                         .. self
                     }
                 }
@@ -417,6 +433,7 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
 
     if init_fields_generic_params.is_empty() {
         quote! {
+            #[allow(dead_code)]
             pub struct #init_struct_name {
                 #(#generated_init_fields)*
             }
@@ -432,6 +449,7 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
     }
     else {
         quote! {
+            #[allow(dead_code)]
             pub struct #init_struct_name< #(#init_fields_generic_params),* > {
                 #(#generated_init_fields)*
             }
