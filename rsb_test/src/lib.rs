@@ -180,4 +180,18 @@ mod tests {
         assert_eq! ( sd1.opt_field2, Some(11) );
     }
 
+    #[test]
+    fn opt_setter_struct() {
+        let s1 : SimpleStrValueStruct =
+            SimpleStrValueStructInit {
+                req_field1 : "hey".into(),
+                req_field2 : 0
+            }.into();
+
+        let s11 =
+            s1.clone()
+                .opt_opt_field1(Some("hey".into()));
+
+        assert_eq!(s11.opt_field1,Some(String::from("hey")));
+    }
 }
