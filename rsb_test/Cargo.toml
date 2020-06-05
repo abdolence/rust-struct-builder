@@ -11,6 +11,9 @@ documentation = "https://github.com/abdolence/rust-value-builder"
 keywords = ["value", "class"]
 readme = "README.md"
 include = ["Cargo.toml", "src/**/*.rs", "README.md", "../LICENSE"]
+publish = false
 
 [dependencies]
 rsb_derive = { version = "0.2", path = "../rsb_derive"}
+
+
