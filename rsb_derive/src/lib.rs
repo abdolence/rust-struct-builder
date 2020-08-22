@@ -493,7 +493,7 @@ fn generate_init_fields(fields: &Vec<ParsedField>) -> Vec<proc_macro2::TokenStre
 
 fn generate_init_new_params(fields: &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
     fields
-        .into_iter()
+        .iter()
         .map(|f| {
             let param_name = &f.ident;
             quote! {
