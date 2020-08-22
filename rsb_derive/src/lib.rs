@@ -1,3 +1,5 @@
+#![allow(clippy::ptr_arg)]
+
 //! Rust struct builder implementation macro
 //!
 //! ## Motivation
@@ -66,6 +68,7 @@ use quote::*;
 use syn::*;
 use std::ops::Index;
 
+
 #[proc_macro_derive(Builder, attributes(default))]
 pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
     let item: syn::Item = syn::parse(input).expect("failed to parse input");
@@ -114,6 +117,7 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
 
                 let output = quote! {
                     #[allow(dead_code)]
+                    #[allow(clippy::needless_update)]
                     #struct_decl {
                         #generated_factory_method
                         #(#generated_fields_methods)*
@@ -137,6 +141,7 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
     }
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Clone)]
 enum ParsedType {
     StringType,
@@ -213,7 +218,7 @@ fn parse_field_type(field_type: &Type) -> ParsedFieldType {
 
             ParsedFieldType {
                 field_type : field_type.clone(),
-                parsed_type : parsed_type
+                parsed_type
             }
         }
         _ =>
@@ -260,7 +265,7 @@ fn field_contains_type(field_type : &Type, tp  : &TypeParam ) -> bool {
 
 }
 
-fn generate_fields_functions(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
+fn generate_fields_functions(fields : &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
     fields.iter().map(generate_field_functions).collect()
 }
 
@@ -365,9 +370,9 @@ fn generate_factory_method(fields : &Vec<ParsedField>) -> proc_macro2::TokenStre
     }
 }
 
-fn generate_new_params(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
+fn generate_new_params(fields : &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
     fields
-        .into_iter()
+        .iter()
         .map(|f| {
             let param_name = &f.ident;
             let param_type = &f.parsed_field_type.field_type;
@@ -379,9 +384,9 @@ fn generate_new_params(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStre
         .collect()
 }
 
-fn generate_factory_assignments(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
+fn generate_factory_assignments(fields : &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
     fields
-        .into_iter()
+        .iter()
         .map(|f| {
             let param_name = &f.ident;
             if f.default_tokens.is_some() {
@@ -434,10 +439,12 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
     if init_fields_generic_params.is_empty() {
         quote! {
             #[allow(dead_code)]
+            #[allow(clippy::needless_update)]
             pub struct #init_struct_name {
                 #(#generated_init_fields)*
             }
 
+            #[allow(clippy::needless_update)]
             impl From<#init_struct_name> for #struct_name {
                  fn from(value: #init_struct_name) -> Self {
                     #struct_name::new(
@@ -450,10 +457,12 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
     else {
         quote! {
             #[allow(dead_code)]
+            #[allow(clippy::needless_update)]
             pub struct #init_struct_name< #(#init_fields_generic_params),* > {
                 #(#generated_init_fields)*
             }
 
+            #[allow(clippy::needless_update)]
             impl < #(#struct_generic_params),* > From< #init_struct_name< #(#init_fields_generic_params_idents),* > > for #struct_name< #(#struct_generic_params_idents),* > #struct_generic_where_decl {
                   fn from(value: #init_struct_name<#(#init_fields_generic_params_idents),*> ) -> Self {
                     #struct_name::new(
@@ -467,7 +476,7 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
 
 fn generate_init_fields(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
     fields
-        .into_iter()
+        .iter()
         .map(|f| {
             let param_name = &f.ident;
             let param_type = &f.parsed_field_type.field_type;
