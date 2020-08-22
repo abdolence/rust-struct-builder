@@ -25,9 +25,9 @@
 //!     opt_field2: Option<i32>
 //! }
 //!
-//! let s1 : SimpleStrValueStruct =
-//!     SimpleStrValueStruct::from(
-//!         SimpleStrValueStructInit {
+//! let s1 : MyStructure =
+//!     MyStructure::from(
+//!         MyStructureInit {
 //!              req_field1 : "hey".into(),
 //!              req_field2 : 0
 //!         }
@@ -47,6 +47,8 @@
 //! ## Defaults
 //!
 //! ```
+//! use rsb_derive::Builder;
+//!
 //! #[derive(Debug, Clone, PartialEq, Builder)]
 //! struct StructWithDefault {
 //!     req_field1: String,
