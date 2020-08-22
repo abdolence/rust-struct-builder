@@ -65,9 +65,8 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::*;
-use syn::*;
 use std::ops::Index;
-
+use syn::*;
 
 #[proc_macro_derive(Builder, attributes(default))]
 pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
@@ -77,18 +76,25 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
         Item::Struct(ref struct_item) => match struct_item.fields {
             Fields::Named(ref named_fields) => {
                 let struct_name = &struct_item.ident;
-                let struct_generic_params: Vec<&TypeParam> =
-                    struct_item.generics.params.iter().map( |ga| {
-                        match ga {
-                            GenericParam::Type(ref ty) => Some(ty),
-                            _ => None
-                        }
-                    }).flatten().collect();
+                let struct_generic_params: Vec<&TypeParam> = struct_item
+                    .generics
+                    .params
+                    .iter()
+                    .map(|ga| match ga {
+                        GenericParam::Type(ref ty) => Some(ty),
+                        _ => None,
+                    })
+                    .flatten()
+                    .collect();
 
-                let struct_generic_params_idents : Vec<&Ident> = struct_generic_params.iter().map(|gp| &gp.ident).collect();
+                let struct_generic_params_idents: Vec<&Ident> =
+                    struct_generic_params.iter().map(|gp| &gp.ident).collect();
 
-                let struct_generic_where_decl  : proc_macro2::TokenStream =
-                    struct_item.generics.where_clause.as_ref().map_or(quote! {}, |wh| quote! { #wh });
+                let struct_generic_where_decl: proc_macro2::TokenStream = struct_item
+                    .generics
+                    .where_clause
+                    .as_ref()
+                    .map_or(quote! {}, |wh| quote! { #wh });
 
                 let struct_fields = parse_fields(&named_fields);
 
@@ -100,20 +106,18 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                     &struct_fields,
                     &struct_generic_params,
                     &struct_generic_params_idents,
-                    struct_item.generics.where_clause.as_ref()
+                    struct_item.generics.where_clause.as_ref(),
                 );
 
-                let struct_decl : proc_macro2::TokenStream =
-                    if struct_generic_params.is_empty() {
-                        quote! {
-                            impl #struct_name
-                        }
+                let struct_decl: proc_macro2::TokenStream = if struct_generic_params.is_empty() {
+                    quote! {
+                        impl #struct_name
                     }
-                    else {
-                        quote! {
-                            impl< #(#struct_generic_params),* > #struct_name < #(#struct_generic_params_idents),* > #struct_generic_where_decl
-                        }
-                    };
+                } else {
+                    quote! {
+                        impl< #(#struct_generic_params),* > #struct_name < #(#struct_generic_params_idents),* > #struct_generic_where_decl
+                    }
+                };
 
                 let output = quote! {
                     #[allow(dead_code)]
@@ -128,12 +132,9 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
 
                 output.into()
             }
-            _ => Error::new(
-                span,
-                "Builder works only on the structs with named fields",
-            )
-            .to_compile_error()
-            .into(),
+            _ => Error::new(span, "Builder works only on the structs with named fields")
+                .to_compile_error()
+                .into(),
         },
         _ => Error::new(span, "Builder derive works only on structs")
             .to_compile_error()
@@ -146,35 +147,38 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
 enum ParsedType {
     StringType,
     ScalarType,
-    OptionalType(Box<ParsedFieldType>)
+    OptionalType(Box<ParsedFieldType>),
 }
 
 impl ParsedType {
     fn is_option(&self) -> bool {
         match self {
             ParsedType::OptionalType(_) => true,
-            _ => false
+            _ => false,
         }
     }
 }
 
 #[derive(Clone)]
 struct ParsedFieldType {
-    field_type : Type,
-    parsed_type : Option<ParsedType>
+    field_type: Type,
+    parsed_type: Option<ParsedType>,
 }
-
 
 #[derive(Clone)]
 struct ParsedField {
-    ident : Ident,
-    parsed_field_type : ParsedFieldType,
-    default_tokens : Option<proc_macro2::TokenStream>
+    ident: Ident,
+    parsed_field_type: ParsedFieldType,
+    default_tokens: Option<proc_macro2::TokenStream>,
 }
 
 impl ParsedField {
     fn is_option(&self) -> bool {
-        self.parsed_field_type.parsed_type.as_ref().filter(|t| t.is_option()).is_some()
+        self.parsed_field_type
+            .parsed_type
+            .as_ref()
+            .filter(|t| t.is_option())
+            .is_some()
     }
 
     fn is_required_field(&self) -> bool {
@@ -199,90 +203,84 @@ fn parse_field_type(field_type: &Type) -> ParsedFieldType {
                 "Option" | "std::option::Option" => {
                     let type_params = &path.path.segments.last().unwrap().arguments;
                     match type_params {
-                        PathArguments::AngleBracketed(ref params) => {
-                            params.args.first().map( |ga| {
-                                match ga {
-                                    GenericArgument::Type(ref ty) => Some(ParsedType::OptionalType(Box::from(parse_field_type(ty)))),
-                                    _ => None
+                        PathArguments::AngleBracketed(ref params) => params
+                            .args
+                            .first()
+                            .map(|ga| match ga {
+                                GenericArgument::Type(ref ty) => {
+                                    Some(ParsedType::OptionalType(Box::from(parse_field_type(ty))))
                                 }
-                            }).flatten()
-                        }
-                        _ => None
+                                _ => None,
+                            })
+                            .flatten(),
+                        _ => None,
                     }
-
                 }
                 "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "u8" | "u16" | "u32" | "u64"
                 | "u128" | "usize" => Some(ParsedType::ScalarType),
-                _ => None
+                _ => None,
             };
 
             ParsedFieldType {
-                field_type : field_type.clone(),
-                parsed_type
+                field_type: field_type.clone(),
+                parsed_type,
             }
         }
-        _ =>
-            ParsedFieldType {
-                field_type: field_type.clone(),
-                parsed_type : None
-            }
+        _ => ParsedFieldType {
+            field_type: field_type.clone(),
+            parsed_type: None,
+        },
     }
 }
 
-fn parse_fields(fields : &FieldsNamed) -> Vec<ParsedField> {
+fn parse_fields(fields: &FieldsNamed) -> Vec<ParsedField> {
     fields.named.iter().map(parse_field).collect()
 }
 
-fn parse_field(field : &Field) -> ParsedField {
-
+fn parse_field(field: &Field) -> ParsedField {
     ParsedField {
-        ident : field.ident.as_ref().unwrap().clone(),
-        parsed_field_type : parse_field_type(&field.ty),
-        default_tokens : parse_field_default_attr(&field)
+        ident: field.ident.as_ref().unwrap().clone(),
+        parsed_field_type: parse_field_type(&field.ty),
+        default_tokens: parse_field_default_attr(&field),
     }
 }
 
-fn field_contains_type(field_type : &Type, tp  : &TypeParam ) -> bool {
+fn field_contains_type(field_type: &Type, tp: &TypeParam) -> bool {
     match field_type {
-        Type::Path(ref path) => {
-            path.path.segments.iter().any(|s| {
-                s.ident.eq(&tp.ident) ||
-                    match s.arguments {
-                        PathArguments::AngleBracketed(ref params) => {
-                            params.args.iter().any(|ga| {
-                                match ga {
-                                    GenericArgument::Type(ref ty) => field_contains_type(&ty,&tp),
-                                    _ => false
-                                }
-                            })
-                        }
-                        _ => false
+        Type::Path(ref path) => path.path.segments.iter().any(|s| {
+            s.ident.eq(&tp.ident)
+                || match s.arguments {
+                    PathArguments::AngleBracketed(ref params) => {
+                        params.args.iter().any(|ga| match ga {
+                            GenericArgument::Type(ref ty) => field_contains_type(&ty, &tp),
+                            _ => false,
+                        })
                     }
-            })
-        }
-        _ => false
+                    _ => false,
+                }
+        }),
+        _ => false,
     }
-
 }
 
-fn generate_fields_functions(fields : &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
+fn generate_fields_functions(fields: &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
     fields.iter().map(generate_field_functions).collect()
 }
 
-fn generate_field_functions(field : &ParsedField) -> proc_macro2::TokenStream {
+fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
     let field_name = &field.ident;
-    let set_field_name = format_ident!("{}",field_name);
-    let reset_field_name = format_ident!("reset_{}",field_name);
-    let with_field_name = format_ident!("with_{}",field_name);
-    let without_field_name = format_ident!("without_{}",field_name);
-    let opt_field_name = format_ident!("opt_{}",field_name);
-    let mut_opt_field_name = format_ident!("mopt_{}",field_name);
+    let set_field_name = format_ident!("{}", field_name);
+    let reset_field_name = format_ident!("reset_{}", field_name);
+    let with_field_name = format_ident!("with_{}", field_name);
+    let without_field_name = format_ident!("without_{}", field_name);
+    let opt_field_name = format_ident!("opt_{}", field_name);
+    let mut_opt_field_name = format_ident!("mopt_{}", field_name);
 
     let field_type = &field.parsed_field_type.field_type;
 
     match field.parsed_field_type.parsed_type.as_ref() {
         Some(ParsedType::OptionalType(ga_type_box)) => {
-            let parsed_ga_field_type : &ParsedFieldType = &*ga_type_box;
+            let parsed_ga_field_type: &ParsedFieldType = &*ga_type_box;
             let ga_type = &parsed_ga_field_type.field_type;
 
             quote! {
@@ -347,16 +345,14 @@ fn generate_field_functions(field : &ParsedField) -> proc_macro2::TokenStream {
             }
         }
     }
-
 }
 
-fn generate_factory_method(fields : &Vec<ParsedField>) -> proc_macro2::TokenStream {
-    let required_fields : Vec<ParsedField> =
-        fields
-            .clone()
-            .into_iter()
-            .filter(|f| f.is_required_field())
-            .collect();
+fn generate_factory_method(fields: &Vec<ParsedField>) -> proc_macro2::TokenStream {
+    let required_fields: Vec<ParsedField> = fields
+        .clone()
+        .into_iter()
+        .filter(|f| f.is_required_field())
+        .collect();
 
     let generated_new_params = generate_new_params(&required_fields);
     let generated_factory_assignments = generate_factory_assignments(&fields);
@@ -370,7 +366,7 @@ fn generate_factory_method(fields : &Vec<ParsedField>) -> proc_macro2::TokenStre
     }
 }
 
-fn generate_new_params(fields : &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
+fn generate_new_params(fields: &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
     fields
         .iter()
         .map(|f| {
@@ -384,7 +380,7 @@ fn generate_new_params(fields : &[ParsedField]) -> Vec<proc_macro2::TokenStream>
         .collect()
 }
 
-fn generate_factory_assignments(fields : &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
+fn generate_factory_assignments(fields: &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
     fields
         .iter()
         .map(|f| {
@@ -398,8 +394,7 @@ fn generate_factory_assignments(fields : &[ParsedField]) -> Vec<proc_macro2::Tok
                 quote! {
                     #param_name : None,
                 }
-            }
-            else {
+            } else {
                 quote! {
                     #param_name : #param_name,
                 }
@@ -408,33 +403,42 @@ fn generate_factory_assignments(fields : &[ParsedField]) -> Vec<proc_macro2::Tok
         .collect()
 }
 
-
-fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
-                        struct_generic_params: &Vec<&TypeParam>,
-                        struct_generic_params_idents : &Vec<&Ident>,
-                        struct_where_decl : Option<&syn::WhereClause>) -> proc_macro2::TokenStream {
+fn generate_init_struct(
+    struct_name: &Ident,
+    fields: &Vec<ParsedField>,
+    struct_generic_params: &Vec<&TypeParam>,
+    struct_generic_params_idents: &Vec<&Ident>,
+    struct_where_decl: Option<&syn::WhereClause>,
+) -> proc_macro2::TokenStream {
     let init_struct_name = format_ident!("{}Init", struct_name);
 
-    let required_fields : Vec<ParsedField> =
-        fields
-            .clone()
-            .into_iter()
-            .filter(|f| f.is_required_field())
-            .collect();
+    let required_fields: Vec<ParsedField> = fields
+        .clone()
+        .into_iter()
+        .filter(|f| f.is_required_field())
+        .collect();
 
     let generated_init_fields = generate_init_fields(&required_fields);
     let generated_init_new_params = generate_init_new_params(&required_fields);
 
-    let init_fields_generic_params : Vec<&&TypeParam> =  required_fields.iter().map(|f| {
-        struct_generic_params.iter().find(|gp| {
-            field_contains_type(&f.parsed_field_type.field_type,gp)
+    let init_fields_generic_params: Vec<&&TypeParam> = required_fields
+        .iter()
+        .map(|f| {
+            struct_generic_params
+                .iter()
+                .find(|gp| field_contains_type(&f.parsed_field_type.field_type, gp))
         })
-    }).flatten().collect();
+        .flatten()
+        .collect();
 
-    let init_fields_generic_params_idents : Vec<&Ident> = init_fields_generic_params.iter().map(|gp| &gp.ident).collect();
+    let init_fields_generic_params_idents: Vec<&Ident> = init_fields_generic_params
+        .iter()
+        .map(|gp| &gp.ident)
+        .collect();
 
-    let struct_generic_where_decl  : proc_macro2::TokenStream =
-        struct_where_decl.as_ref().map_or(quote! {}, |wh| quote! { #wh });
+    let struct_generic_where_decl: proc_macro2::TokenStream = struct_where_decl
+        .as_ref()
+        .map_or(quote! {}, |wh| quote! { #wh });
 
     if init_fields_generic_params.is_empty() {
         quote! {
@@ -453,8 +457,7 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
                  }
             }
         }
-    }
-    else {
+    } else {
         quote! {
             #[allow(dead_code)]
             #[allow(clippy::needless_update)]
@@ -474,7 +477,7 @@ fn generate_init_struct(struct_name : &Ident, fields : &Vec<ParsedField>,
     }
 }
 
-fn generate_init_fields(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
+fn generate_init_fields(fields: &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
     fields
         .iter()
         .map(|f| {
@@ -488,7 +491,7 @@ fn generate_init_fields(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStr
         .collect()
 }
 
-fn generate_init_new_params(fields : &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
+fn generate_init_new_params(fields: &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
     fields
         .into_iter()
         .map(|f| {
@@ -500,33 +503,36 @@ fn generate_init_new_params(fields : &Vec<ParsedField>) -> Vec<proc_macro2::Toke
         .collect()
 }
 
-fn parse_field_default_attr(field : &Field) -> Option<proc_macro2::TokenStream> {
-    field.attrs.iter().find(|a| {
-        match a.style {
-            AttrStyle::Outer => {
-                a.path.segments.first().iter().any (|s| s.ident.eq("default"))
-            },
-            _ => false
-        }
-    }).and_then(|a| {
-       let attr_tokens : &Vec<proc_macro2::TokenTree> = &a.tokens.clone().into_iter().collect();
-        if attr_tokens.len() > 1 {
-            match attr_tokens.last().unwrap() {
-                proc_macro2::TokenTree::Literal(lit) => {
-                    let lit_str = format!("{}",lit);
-                    let lit_unquoted_str = lit_str.index(1..lit_str.len()-1);
-                    let lit_stream : proc_macro2::TokenStream = syn::parse_str(lit_unquoted_str).unwrap();
-                    Some(
-                        quote! {
+fn parse_field_default_attr(field: &Field) -> Option<proc_macro2::TokenStream> {
+    field
+        .attrs
+        .iter()
+        .find(|a| match a.style {
+            AttrStyle::Outer => a
+                .path
+                .segments
+                .first()
+                .iter()
+                .any(|s| s.ident.eq("default")),
+            _ => false,
+        })
+        .and_then(|a| {
+            let attr_tokens: &Vec<proc_macro2::TokenTree> = &a.tokens.clone().into_iter().collect();
+            if attr_tokens.len() > 1 {
+                match attr_tokens.last().unwrap() {
+                    proc_macro2::TokenTree::Literal(lit) => {
+                        let lit_str = format!("{}", lit);
+                        let lit_unquoted_str = lit_str.index(1..lit_str.len() - 1);
+                        let lit_stream: proc_macro2::TokenStream =
+                            syn::parse_str(lit_unquoted_str).unwrap();
+                        Some(quote! {
                             #lit_stream
-                        }
-                    )
+                        })
+                    }
+                    _ => None,
                 }
-                _ => None
+            } else {
+                None
             }
-        }
-        else {
-            None
-        }
-    })
+        })
 }
