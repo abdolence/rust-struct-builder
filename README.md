@@ -49,12 +49,12 @@ struct MyStructure {
 // Creating instances
 
 // Option #1:
-let s1 : SimpleStrValueStruct = SimpleStrValueStruct::new(
+let s1 : MyStructure = MyStructure::new(
             "hey".into(),
             0);
 
 // Option #2 (named arguments emulation):
-let s2 : SimpleStrValueStruct = SimpleStrValueStructInit {
+let s2 : MyStructure = MyStructureInit {
         req_field1 : "hey".into(),
         req_field2 : 0
     }.into();
@@ -70,9 +70,9 @@ let updated =
 
 // All together example
 
-let s1 : SimpleStrValueStruct =
-    SimpleStrValueStruct::from(
-        SimpleStrValueStructInit {
+let s1 : MyStructure =
+    MyStructure::from(
+        MyStructureInit {
             req_field1 : "hey".into(),
             req_field2 : 0
         }
@@ -81,9 +81,9 @@ let s1 : SimpleStrValueStruct =
         .with_opt_field2(10);
 
 // Mutable example (in case you really need it)
-let mut s1 : SimpleStrValueStruct =
-    SimpleStrValueStruct::from(
-        SimpleStrValueStructInit {
+let mut s1 : MyStructure =
+    MyStructure::from(
+        MyStructureInit {
             req_field1 : "hey".into(),
             req_field2 : 0
         }
