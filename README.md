@@ -36,10 +36,10 @@ use rsb_derive::Builder;
 // And use it on your structs
 #[derive(Clone,Builder)]
 struct MyStructure {
-    req_field1: String,
-    req_field2: i32,
-    opt_field1: Option<String>,
-    opt_field2: Option<i32>
+    pub req_field1: String,
+    pub req_field2: i32,
+    pub opt_field1: Option<String>,
+    pub opt_field2: Option<i32>
 }
 ```
 
@@ -109,13 +109,13 @@ to manage this like:
 ```rust
 #[derive(Debug, Clone, PartialEq, Builder)]
 struct StructWithDefault {
-    req_field1: String,
+    pub req_field1: String,
     #[default="10"]
-    req_field2: i32, // default here make this field behave like optional
+    pub req_field2: i32, // default here make this field behave like optional
 
-    opt_field1: Option<String>,
+    pub opt_field1: Option<String>,
     #[default="Some(11)"]
-    opt_field2: Option<i32> // default works also on optional fields
+    pub opt_field2: Option<i32> // default works also on optional fields
 }
 
 let my_struct : StructWithDefault = StructWithDefault::from(

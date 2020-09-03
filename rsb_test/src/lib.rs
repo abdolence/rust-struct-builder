@@ -5,31 +5,60 @@ mod tests {
 
     #[derive(Debug, Clone,PartialEq, Builder)]
     struct SimpleStrValueStruct {
-        req_field1: String,
-        req_field2: i32,
-        opt_field1: Option<String>,
-        opt_field2: Option<i32>
+        pub req_field1: String,
+        pub req_field2: i32,
+        pub opt_field1: Option<String>,
+        pub opt_field2: Option<i32>
     }
 
     #[derive(Debug, Clone, PartialEq, Builder)]
     struct GenericValueStruct<T,B> {
-        gen_field1 : T,
-        opt_gen_field1 : Option<T>,
-        opt_gen_field2 : Option<B>
+        pub gen_field1 : T,
+        pub opt_gen_field1 : Option<T>,
+        pub opt_gen_field2 : Option<B>
     }
 
 
     #[derive(Debug, Clone, PartialEq, Builder)]
     struct GenericValueStructWithBounds<T : Copy + Clone> {
-        gen_field1 : T,
-        opt_gen_field1 : Option<T>,
-        opt_gen_field2 : Option<String>
+        pub gen_field1 : T,
+        pub opt_gen_field1 : Option<T>,
+        pub opt_gen_field2 : Option<String>
     }
 
     #[derive(Debug, Clone, PartialEq, Builder)]
     struct GenericValueStructWithBoundsWhere<T> where T : Copy + Clone {
-        gen_field1 : T,
-        opt_gen_field1 : Option<T>
+        pub gen_field1 : T,
+        pub opt_gen_field1 : Option<T>
+    }
+
+
+    #[derive(Debug, Clone,PartialEq, Builder)]
+    struct StructWithDefault {
+        pub req_field1: String,
+        #[default="10"]
+        pub req_field2: i32,
+        pub opt_field1: Option<String>,
+        #[default="Some(11)"]
+        pub opt_field2: Option<i32>
+    }
+
+    #[test]
+    fn new_str_value_struct() {
+        let s1 : SimpleStrValueStruct = SimpleStrValueStruct::new(
+            "hey".into(),
+            0
+        );
+
+        assert_eq!(s1.req_field1,String::from("hey"));
+    }
+
+    #[derive(Debug, Clone,PartialEq, Builder)]
+    struct StructWithDifferentAccess {
+        pub req_field1: String,
+        req_field2: i32,
+        pub opt_field1: Option<String>,
+        opt_field2: Option<i32>
     }
 
     #[test]
@@ -54,25 +83,6 @@ mod tests {
         assert_eq!(s1c.without_opt_field1().opt_field1,None);
     }
 
-    #[derive(Debug, Clone,PartialEq, Builder)]
-    struct StructWithDefault {
-        req_field1: String,
-        #[default="10"]
-        req_field2: i32,
-        opt_field1: Option<String>,
-        #[default="Some(11)"]
-        opt_field2: Option<i32>
-    }
-
-    #[test]
-    fn new_str_value_struct() {
-        let s1 : SimpleStrValueStruct = SimpleStrValueStruct::new(
-            "hey".into(),
-            0
-        );
-
-        assert_eq!(s1.req_field1,String::from("hey"));
-    }
 
     #[test]
     fn into_str_value_struct() {
@@ -193,5 +203,16 @@ mod tests {
                 .opt_opt_field1(Some("hey".into()));
 
         assert_eq!(s11.opt_field1,Some(String::from("hey")));
+    }
+
+    #[test]
+    fn different_access_struct() {
+        let s1 = StructWithDifferentAccess::new (
+            "hey".into(),
+            0
+        ).opt_field1("hey".into()).req_field2(0).clone();
+
+        assert_eq!(s1.opt_field1,Some("hey".into()));
+
     }
 }

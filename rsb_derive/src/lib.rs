@@ -19,10 +19,10 @@
 //! // And use it on your structs
 //! #[derive(Clone,Builder)]
 //! struct MyStructure {
-//!     req_field1: String,
-//!     req_field2: i32,
-//!     opt_field1: Option<String>,
-//!     opt_field2: Option<i32>
+//!     pub req_field1: String,
+//!     pub req_field2: i32,
+//!     pub opt_field1: Option<String>,
+//!     pub opt_field2: Option<i32>
 //! }
 //!
 //! let s1 : MyStructure =
@@ -51,13 +51,13 @@
 //!
 //! #[derive(Debug, Clone, PartialEq, Builder)]
 //! struct StructWithDefault {
-//!     req_field1: String,
+//!     pub req_field1: String,
 //!     #[default="10"]
-//!     req_field2: i32, // default here make this field behave like optional
+//!     pub req_field2: i32, // default here make this field behave like optional
 //!
-//!     opt_field1: Option<String>,
+//!     pub opt_field1: Option<String>,
 //!     #[default="Some(11)"]
-//!     opt_field2: Option<i32> // default works also on optional fields
+//!     pub opt_field2: Option<i32> // default works also on optional fields
 //! }
 //! ```
 //!
@@ -172,6 +172,7 @@ struct ParsedField {
     ident: Ident,
     parsed_field_type: ParsedFieldType,
     default_tokens: Option<proc_macro2::TokenStream>,
+    visibility: Visibility
 }
 
 impl ParsedField {
@@ -244,6 +245,7 @@ fn parse_field(field: &Field) -> ParsedField {
         ident: field.ident.as_ref().unwrap().clone(),
         parsed_field_type: parse_field_type(&field.ty),
         default_tokens: parse_field_default_attr(&field),
+        visibility: field.vis.clone()
     }
 }
 
@@ -279,6 +281,7 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
     let mut_opt_field_name = format_ident!("mopt_{}", field_name);
 
     let field_type = &field.parsed_field_type.field_type;
+    let field_visibility = &field.visibility;
 
     match field.parsed_field_type.parsed_type.as_ref() {
         Some(ParsedType::OptionalType(ga_type_box)) => {
@@ -287,25 +290,25 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
 
             quote! {
                 #[inline]
-                pub fn #set_field_name(&mut self, value : #ga_type) -> &mut Self {
+                #field_visibility fn #set_field_name(&mut self, value : #ga_type) -> &mut Self {
                     self.#field_name = Some(value);
                     self
                 }
 
                 #[inline]
-                pub fn #reset_field_name(&mut self) -> &mut Self {
+                #field_visibility fn #reset_field_name(&mut self) -> &mut Self {
                     self.#field_name = None;
                     self
                 }
 
                 #[inline]
-                pub fn #mut_opt_field_name(&mut self, value : #field_type) -> &mut Self {
+                #field_visibility fn #mut_opt_field_name(&mut self, value : #field_type) -> &mut Self {
                     self.#field_name = value;
                     self
                 }
 
                 #[inline]
-                pub fn #with_field_name(self, value : #ga_type) -> Self {
+                #field_visibility fn #with_field_name(self, value : #ga_type) -> Self {
                     Self {
                         #field_name : Some(value),
                         .. self
@@ -313,7 +316,7 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
                 }
 
                 #[inline]
-                pub fn #without_field_name(self) -> Self {
+                #field_visibility fn #without_field_name(self) -> Self {
                     Self {
                         #field_name : None,
                         .. self
@@ -321,7 +324,7 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
                 }
 
                 #[inline]
-                pub fn #opt_field_name(self, value : #field_type) -> Self {
+                #field_visibility fn #opt_field_name(self, value : #field_type) -> Self {
                     Self {
                         #field_name : value,
                         .. self
@@ -332,13 +335,13 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
         _ => {
             quote! {
                 #[inline]
-                pub fn #set_field_name(&mut self, value : #field_type) -> &mut Self {
+                #field_visibility fn #set_field_name(&mut self, value : #field_type) -> &mut Self {
                     self.#field_name = value;
                     self
                 }
 
                 #[inline]
-                pub fn #with_field_name(self, value : #field_type) -> Self {
+                #field_visibility fn #with_field_name(self, value : #field_type) -> Self {
                     Self {
                         #field_name : value,
                         .. self
