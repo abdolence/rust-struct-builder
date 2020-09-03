@@ -172,7 +172,7 @@ struct ParsedField {
     ident: Ident,
     parsed_field_type: ParsedFieldType,
     default_tokens: Option<proc_macro2::TokenStream>,
-    visibility: Visibility
+    visibility: Visibility,
 }
 
 impl ParsedField {
@@ -245,7 +245,7 @@ fn parse_field(field: &Field) -> ParsedField {
         ident: field.ident.as_ref().unwrap().clone(),
         parsed_field_type: parse_field_type(&field.ty),
         default_tokens: parse_field_default_attr(&field),
-        visibility: field.vis.clone()
+        visibility: field.vis.clone(),
     }
 }
 
