@@ -16,7 +16,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rsb_derive = "0.2"
+rsb_derive = "0.3"
 ```
 
 The macros generates the following functions and instances for your structures:
