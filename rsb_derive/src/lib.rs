@@ -431,7 +431,7 @@ fn generate_init_struct(
     let generated_init_fields = generate_init_fields(&required_fields);
     let generated_init_new_params = generate_init_new_params(&required_fields);
 
-    let init_fields_generic_params: Vec<&&TypeParam> = required_fields
+    let mut init_fields_generic_params: Vec<&&TypeParam> = required_fields
         .iter()
         .map(|f| {
             struct_generic_params
@@ -440,6 +440,8 @@ fn generate_init_struct(
         })
         .flatten()
         .collect();
+
+    init_fields_generic_params.dedup_by_key(|tp| &tp.ident);
 
     let init_fields_generic_params_idents: Vec<&Ident> = init_fields_generic_params
         .iter()
@@ -450,7 +452,7 @@ fn generate_init_struct(
         .as_ref()
         .map_or(quote! {}, |wh| quote! { #wh });
 
-    let init_fields_lifetime_params: Vec<&&LifetimeDef> = required_fields
+    let mut init_fields_lifetime_params: Vec<&&LifetimeDef> = required_fields
         .iter()
         .map(|f| {
             struct_lifetime_params
@@ -459,6 +461,8 @@ fn generate_init_struct(
         })
         .flatten()
         .collect();
+
+    init_fields_lifetime_params.dedup_by_key(|lt| &lt.lifetime.ident);
 
     if init_fields_generic_params.is_empty() && init_fields_lifetime_params.is_empty() {
         let struct_name_with_possible_generics_lt =

@@ -14,6 +14,7 @@ mod tests {
     #[derive(Debug, Clone, PartialEq, Builder)]
     struct GenericValueStruct<T, B> {
         pub gen_field1: T,
+        pub gen_field2: T,
         pub opt_gen_field1: Option<T>,
         pub opt_gen_field2: Option<B>,
     }
@@ -60,8 +61,9 @@ mod tests {
 
     #[derive(Debug, Clone, PartialEq, Builder)]
     struct StructWithLifetimeAdv<'a> {
-        pub req_field: Vec<StructWithLifetime<'a>>,
-        pub opt_field: Option<&'a str>
+        pub req_field1: &'a str,
+        pub req_field2: Vec<StructWithLifetime<'a>>,
+        pub opt_field: Option<&'a str>,
     }
 
     #[test]
@@ -143,6 +145,7 @@ mod tests {
         let g1: GenericValueStruct<String, i64> =
             GenericValueStruct::from(GenericValueStructInit {
                 gen_field1: "hey".into(),
+                gen_field2: "hey2".into(),
             })
             .with_opt_gen_field1("hey".into());
 
