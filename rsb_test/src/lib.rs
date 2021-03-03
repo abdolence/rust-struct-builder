@@ -53,9 +53,15 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, Builder)]
-    struct StructWithLifetime<'a> {
+    pub struct StructWithLifetime<'a> {
         pub req_field: &'a str,
         pub opt_field: Option<&'a str>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct StructWithLifetimeAdv<'a> {
+        pub req_field: Vec<StructWithLifetime<'a>>,
+        pub opt_field: Option<&'a str>
     }
 
     #[test]

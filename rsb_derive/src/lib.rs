@@ -271,24 +271,6 @@ fn parse_field(field: &Field) -> ParsedField {
     }
 }
 
-fn field_contains_type(field_type: &Type, tp: &TypeParam) -> bool {
-    match field_type {
-        Type::Path(ref path) => path.path.segments.iter().any(|s| {
-            s.ident.eq(&tp.ident)
-                || match s.arguments {
-                    PathArguments::AngleBracketed(ref params) => {
-                        params.args.iter().any(|ga| match ga {
-                            GenericArgument::Type(ref ty) => field_contains_type(&ty, &tp),
-                            _ => false,
-                        })
-                    }
-                    _ => false,
-                }
-        }),
-        _ => false,
-    }
-}
-
 fn generate_fields_functions(fields: &[ParsedField]) -> Vec<proc_macro2::TokenStream> {
     fields.iter().map(generate_field_functions).collect()
 }
@@ -471,13 +453,9 @@ fn generate_init_struct(
     let init_fields_lifetime_params: Vec<&&LifetimeDef> = required_fields
         .iter()
         .map(|f| {
-            struct_lifetime_params.iter().find(|lt| {
-                f.parsed_field_type
-                    .lifetime
-                    .as_ref()
-                    .filter(|flt| lt.lifetime.eq(flt))
-                    .is_some()
-            })
+            struct_lifetime_params
+                .iter()
+                .find(|lt| field_contains_lifetime(&f, &lt))
         })
         .flatten()
         .collect();
@@ -588,4 +566,46 @@ fn parse_field_default_attr(field: &Field) -> Option<proc_macro2::TokenStream> {
                 None
             }
         })
+}
+
+fn field_contains_type(field_type: &Type, tp: &TypeParam) -> bool {
+    match field_type {
+        Type::Path(ref path) => path.path.segments.iter().any(|s| {
+            s.ident.eq(&tp.ident)
+                || match s.arguments {
+                    PathArguments::AngleBracketed(ref params) => {
+                        params.args.iter().any(|ga| match ga {
+                            GenericArgument::Type(ref ty) => field_contains_type(&ty, &tp),
+                            _ => false,
+                        })
+                    }
+                    _ => false,
+                }
+        }),
+        _ => false,
+    }
+}
+
+fn field_contains_lifetime(field: &ParsedField, lt: &LifetimeDef) -> bool {
+    field
+        .parsed_field_type
+        .lifetime
+        .as_ref()
+        .filter(|flt| lt.lifetime.eq(flt))
+        .is_some()
+        || field_contains_lifetime_type(&field.parsed_field_type.field_type, &lt)
+}
+
+fn field_contains_lifetime_type(field_type: &Type, lt: &LifetimeDef) -> bool {
+    match field_type {
+        Type::Path(ref path) => path.path.segments.iter().any(|s| match s.arguments {
+            PathArguments::AngleBracketed(ref params) => params.args.iter().any(|ga| match ga {
+                GenericArgument::Type(ref ty) => field_contains_lifetime_type(&ty, &lt),
+                GenericArgument::Lifetime(ref flt) => lt.lifetime.eq(flt),
+                _ => false,
+            }),
+            _ => false,
+        }),
+        _ => false,
+    }
 }
