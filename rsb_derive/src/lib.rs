@@ -92,6 +92,17 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                 let struct_generic_params_idents: Vec<&Ident> =
                     struct_generic_params.iter().map(|gp| &gp.ident).collect();
 
+                let struct_lifetime_params: Vec<&LifetimeDef> = struct_item
+                    .generics
+                    .params
+                    .iter()
+                    .map(|ga| match ga {
+                        GenericParam::Lifetime(ref lt) => Some(lt),
+                        _ => None,
+                    })
+                    .flatten()
+                    .collect();
+
                 let struct_generic_where_decl: proc_macro2::TokenStream = struct_item
                     .generics
                     .where_clause
@@ -108,16 +119,19 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                     &struct_fields,
                     &struct_generic_params,
                     &struct_generic_params_idents,
+                    &struct_lifetime_params,
                     struct_item.generics.where_clause.as_ref(),
                 );
 
-                let struct_decl: proc_macro2::TokenStream = if struct_generic_params.is_empty() {
+                let struct_decl: proc_macro2::TokenStream = if struct_generic_params.is_empty()
+                    && struct_lifetime_params.is_empty()
+                {
                     quote! {
                         impl #struct_name
                     }
                 } else {
                     quote! {
-                        impl< #(#struct_generic_params),* > #struct_name < #(#struct_generic_params_idents),* > #struct_generic_where_decl
+                        impl <#(#struct_lifetime_params),* #(#struct_generic_params),* > #struct_name <#(#struct_lifetime_params),*  #(#struct_generic_params_idents),* > #struct_generic_where_decl
                     }
                 };
 
@@ -165,6 +179,7 @@ impl ParsedType {
 struct ParsedFieldType {
     field_type: Type,
     parsed_type: Option<ParsedType>,
+    lifetime: Option<Lifetime>,
 }
 
 #[derive(Clone)]
@@ -227,11 +242,18 @@ fn parse_field_type(field_type: &Type) -> ParsedFieldType {
             ParsedFieldType {
                 field_type: field_type.clone(),
                 parsed_type,
+                lifetime: None,
             }
         }
+        Type::Reference(ref type_ref) => ParsedFieldType {
+            lifetime: type_ref.lifetime.clone(),
+            field_type: field_type.clone(),
+            parsed_type: None,
+        },
         _ => ParsedFieldType {
             field_type: field_type.clone(),
             parsed_type: None,
+            lifetime: None,
         },
     }
 }
@@ -413,6 +435,7 @@ fn generate_init_struct(
     fields: &Vec<ParsedField>,
     struct_generic_params: &Vec<&TypeParam>,
     struct_generic_params_idents: &Vec<&Ident>,
+    struct_lifetime_params: &Vec<&LifetimeDef>,
     struct_where_decl: Option<&syn::WhereClause>,
 ) -> proc_macro2::TokenStream {
     let init_struct_name = format_ident!("{}Init", struct_name);
@@ -445,7 +468,32 @@ fn generate_init_struct(
         .as_ref()
         .map_or(quote! {}, |wh| quote! { #wh });
 
-    if init_fields_generic_params.is_empty() {
+    let init_fields_lifetime_params: Vec<&&LifetimeDef> = required_fields
+        .iter()
+        .map(|f| {
+            struct_lifetime_params.iter().find(|lt| {
+                f.parsed_field_type
+                    .lifetime
+                    .as_ref()
+                    .filter(|flt| lt.lifetime.eq(flt))
+                    .is_some()
+            })
+        })
+        .flatten()
+        .collect();
+
+    if init_fields_generic_params.is_empty() && init_fields_lifetime_params.is_empty() {
+        let struct_name_with_possible_generics_lt =
+            if struct_generic_params.is_empty() && struct_lifetime_params.is_empty() {
+                quote! {
+                    #struct_name
+                }
+            } else {
+                quote! {
+                   #struct_name<'_>
+                }
+            };
+
         quote! {
             #[allow(dead_code)]
             #[allow(clippy::needless_update)]
@@ -454,7 +502,7 @@ fn generate_init_struct(
             }
 
             #[allow(clippy::needless_update)]
-            impl From<#init_struct_name> for #struct_name {
+            impl From <#init_struct_name> for #struct_name_with_possible_generics_lt {
                  fn from(value: #init_struct_name) -> Self {
                     #struct_name::new(
                         #(#generated_init_new_params)*
@@ -466,13 +514,13 @@ fn generate_init_struct(
         quote! {
             #[allow(dead_code)]
             #[allow(clippy::needless_update)]
-            pub struct #init_struct_name< #(#init_fields_generic_params),* > {
+            pub struct #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params),* > {
                 #(#generated_init_fields)*
             }
 
             #[allow(clippy::needless_update)]
-            impl < #(#struct_generic_params),* > From< #init_struct_name< #(#init_fields_generic_params_idents),* > > for #struct_name< #(#struct_generic_params_idents),* > #struct_generic_where_decl {
-                  fn from(value: #init_struct_name<#(#init_fields_generic_params_idents),*> ) -> Self {
+            impl < #(#struct_lifetime_params),* #(#struct_generic_params),* > From < #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params_idents),* > > for #struct_name< #(#struct_lifetime_params),* #(#struct_generic_params_idents),* > #struct_generic_where_decl {
+                  fn from(value: #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params_idents),*> ) -> Self {
                     #struct_name::new(
                         #(#generated_init_new_params)*
                     )

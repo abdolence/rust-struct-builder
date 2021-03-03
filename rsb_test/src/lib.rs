@@ -44,19 +44,25 @@ mod tests {
         pub opt_field2: Option<i32>,
     }
 
-    #[test]
-    fn new_str_value_struct() {
-        let s1: SimpleStrValueStruct = SimpleStrValueStruct::new("hey".into(), 0);
-
-        assert_eq!(s1.req_field1, String::from("hey"));
-    }
-
     #[derive(Debug, Clone, PartialEq, Builder)]
     struct StructWithDifferentAccess {
         pub req_field1: String,
         req_field2: i32,
         pub opt_field1: Option<String>,
         opt_field2: Option<i32>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct StructWithLifetime<'a> {
+        pub req_field: &'a str,
+        pub opt_field: Option<&'a str>,
+    }
+
+    #[test]
+    fn new_str_value_struct() {
+        let s1: SimpleStrValueStruct = SimpleStrValueStruct::new("hey".into(), 0);
+
+        assert_eq!(s1.req_field1, String::from("hey"));
     }
 
     #[test]
@@ -191,5 +197,14 @@ mod tests {
             .clone();
 
         assert_eq!(s1.opt_field1, Some("hey".into()));
+    }
+
+    #[test]
+    fn struct_with_lifetimes() {
+        let s1 = StructWithLifetime::new("hey".into())
+            .opt_field("hey".into())
+            .clone();
+
+        assert_eq!(s1.opt_field, Some("hey".into()));
     }
 }
