@@ -109,13 +109,13 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                     .as_ref()
                     .map_or(quote! {}, |wh| quote! { #wh });
 
-                let struct_fields = parse_fields(&named_fields);
+                let struct_fields = parse_fields(named_fields);
 
                 let generated_factory_method = generate_factory_method(&struct_fields);
                 let generated_fields_methods = generate_fields_functions(&struct_fields);
 
                 let generated_aux_init_struct = generate_init_struct(
-                    &struct_name,
+                    struct_name,
                     &struct_fields,
                     &struct_generic_params,
                     &struct_generic_params_idents,
@@ -168,10 +168,7 @@ enum ParsedType {
 
 impl ParsedType {
     fn is_option(&self) -> bool {
-        match self {
-            ParsedType::OptionalType(_) => true,
-            _ => false,
-        }
+        matches!(self, ParsedType::OptionalType(_))
     }
 }
 
@@ -266,7 +263,7 @@ fn parse_field(field: &Field) -> ParsedField {
     ParsedField {
         ident: field.ident.as_ref().unwrap().clone(),
         parsed_field_type: parse_field_type(&field.ty),
-        default_tokens: parse_field_default_attr(&field),
+        default_tokens: parse_field_default_attr(field),
         visibility: field.vis.clone(),
     }
 }
@@ -364,7 +361,7 @@ fn generate_factory_method(fields: &Vec<ParsedField>) -> proc_macro2::TokenStrea
         .collect();
 
     let generated_new_params = generate_new_params(&required_fields);
-    let generated_factory_assignments = generate_factory_assignments(&fields);
+    let generated_factory_assignments = generate_factory_assignments(fields);
 
     quote! {
         pub fn new(#(#generated_new_params)*) -> Self {
@@ -457,7 +454,7 @@ fn generate_init_struct(
         .map(|f| {
             struct_lifetime_params
                 .iter()
-                .find(|lt| field_contains_lifetime(&f, &lt))
+                .find(|lt| field_contains_lifetime(f, lt))
         })
         .flatten()
         .collect();
@@ -579,7 +576,7 @@ fn field_contains_type(field_type: &Type, tp: &TypeParam) -> bool {
                 || match s.arguments {
                     PathArguments::AngleBracketed(ref params) => {
                         params.args.iter().any(|ga| match ga {
-                            GenericArgument::Type(ref ty) => field_contains_type(&ty, &tp),
+                            GenericArgument::Type(ref ty) => field_contains_type(ty, tp),
                             _ => false,
                         })
                     }
@@ -597,14 +594,14 @@ fn field_contains_lifetime(field: &ParsedField, lt: &LifetimeDef) -> bool {
         .as_ref()
         .filter(|flt| lt.lifetime.eq(flt))
         .is_some()
-        || field_contains_lifetime_type(&field.parsed_field_type.field_type, &lt)
+        || field_contains_lifetime_type(&field.parsed_field_type.field_type, lt)
 }
 
 fn field_contains_lifetime_type(field_type: &Type, lt: &LifetimeDef) -> bool {
     match field_type {
         Type::Path(ref path) => path.path.segments.iter().any(|s| match s.arguments {
             PathArguments::AngleBracketed(ref params) => params.args.iter().any(|ga| match ga {
-                GenericArgument::Type(ref ty) => field_contains_lifetime_type(&ty, &lt),
+                GenericArgument::Type(ref ty) => field_contains_lifetime_type(ty, lt),
                 GenericArgument::Lifetime(ref flt) => lt.lifetime.eq(flt),
                 _ => false,
             }),

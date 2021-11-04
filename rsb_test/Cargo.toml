@@ -2,7 +2,7 @@
 name = "rsb_test"
 version = "0.1.0"
 authors = ["Abdulla Abdurakhmanov <me@abdolence.dev>"]
-edition = "2018"
+edition = "2021"
 license = "Apache-2.0"
 description = "Tests for macros implementation"
 homepage = "https://github.com/abdolence/rust-value-builder"
@@ -14,4 +14,4 @@ include = ["Cargo.toml", "src/**/*.rs", "README.md", "../LICENSE"]
 publish = false
 
 [dependencies]
-rsb_derive = { version = "0.4.2", path = "../rsb_derive"}
+rsb_derive = { version = "0.5", path = "../rsb_derive"}
