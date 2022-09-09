@@ -1,14 +1,14 @@
 [package]
 name = "rsb_derive"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Abdulla Abdurakhmanov <me@abdolence.dev>"]
 edition = "2021"
 license = "Apache-2.0"
-description = "An opinionated macros implementation for Rust struct builder pattern"
+description = "An opinionated macro implementation for Rust struct builder pattern with compile-time validation"
 homepage = "https://github.com/abdolence/rust-struct-builder"
 repository = "https://github.com/abdolence/rust-struct-builder"
 documentation = "https://github.com/abdolence/rust-struct-builder"
-keywords = ["value", "class", "newtype"]
+keywords = ["builder", "class", "pattern", "compile-time"]
 categories = ["rust-patterns"]
 readme = "../README.md"
 include = ["Cargo.toml", "src/**/*.rs", "../README.md", "../LICENSE"]
