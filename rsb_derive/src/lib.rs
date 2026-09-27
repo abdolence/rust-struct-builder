@@ -61,7 +61,25 @@
 //! }
 //! ```
 //!
-//! Details and source code: [https://github.com/abdolence/rust-struct-builder]: https://github.com/abdolence/rust-struct-builder
+//! ## Field names
+//!
+//! The separate `BuilderFieldNames` derive adds an associated const with the
+//! struct's field names in declaration order. It does not need `Builder`.
+//!
+//! ```
+//! use rsb_derive::BuilderFieldNames;
+//!
+//! #[derive(BuilderFieldNames)]
+//! struct Token {
+//!     pub r#type: String,
+//!     pub text: String,
+//! }
+//!
+//! // Raw identifiers are listed without their `r#` prefix.
+//! assert_eq!(Token::FIELD_NAMES, ["type", "text"]);
+//! ```
+//!
+//! Details and source code:[https://github.com/abdolence/rust-struct-builder]: https://github.com/abdolence/rust-struct-builder
 //!
 
 use proc_macro::TokenStream;
@@ -142,6 +160,53 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                     }
 
                     #generated_aux_init_struct
+                };
+
+                output.into()
+            }
+            _ => Error::new(span, "Builder works only on the structs with named fields")
+                .to_compile_error()
+                .into(),
+        },
+        _ => Error::new(span, "Builder derive works only on structs")
+            .to_compile_error()
+            .into(),
+    }
+}
+
+#[proc_macro_derive(BuilderFieldNames)]
+pub fn struct_field_names_macro(input: TokenStream) -> TokenStream {
+    let item: syn::Item = syn::parse(input).expect("failed to parse input");
+    let span = Span::call_site();
+    match item {
+        Item::Struct(ref struct_item) => match struct_item.fields {
+            Fields::Named(ref named_fields) => {
+                let struct_name = &struct_item.ident;
+                let (impl_generics, ty_generics, where_clause) =
+                    struct_item.generics.split_for_impl();
+
+                let field_names: Vec<String> = named_fields
+                    .named
+                    .iter()
+                    .filter_map(|f| f.ident.as_ref())
+                    .map(|ident| ident.unraw().to_string())
+                    .collect();
+                let field_count = field_names.len();
+
+                let names_doc = doc_block(
+                    &format!(
+                        "Names of the fields of `{}`, in declaration order.",
+                        struct_name.unraw()
+                    ),
+                    &[],
+                );
+
+                let output = quote! {
+                    #[allow(dead_code)]
+                    impl #impl_generics #struct_name #ty_generics #where_clause {
+                        #names_doc
+                        pub const FIELD_NAMES: [&'static str; #field_count] = [#(#field_names),*];
+                    }
                 };
 
                 output.into()
