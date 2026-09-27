@@ -61,6 +61,30 @@
 //! }
 //! ```
 //!
+//! ## Documentation
+//!
+//! Everything the macro generates has doc comments: a summary line, plus the doc comments
+//! of the field it works with. So you can use it on public structs in crates
+//! with `#![deny(missing_docs)]`:
+//!
+//! ```
+//! /// Connection settings.
+//! #[deny(missing_docs)]
+//! pub mod settings {
+//!     use rsb_derive::Builder;
+//!
+//!     /// Where and how to connect.
+//!     #[derive(Builder)]
+//!     pub struct Connection {
+//!         /// Host name or IP address to connect to.
+//!         pub host: String,
+//!         /// User to connect as.
+//!         pub user: Option<String>,
+//!     }
+//! }
+//! # fn main() {}
+//! ```
+//!
 //! ## Field names
 //!
 //! The separate `BuilderFieldNames` derive adds an associated const with the
@@ -79,7 +103,26 @@
 //! assert_eq!(Token::FIELD_NAMES, ["type", "text"]);
 //! ```
 //!
-//! Details and source code:[https://github.com/abdolence/rust-struct-builder]: https://github.com/abdolence/rust-struct-builder
+//! Be aware that for generic structs you need to specify the type parameters,
+//! even though the names do not depend on them. `Wrapper::FIELD_NAMES` does not compile:
+//!
+//! ```
+//! use rsb_derive::BuilderFieldNames;
+//!
+//! #[derive(BuilderFieldNames)]
+//! struct Wrapper<T> {
+//!     pub inner: T,
+//! }
+//!
+//! assert_eq!(Wrapper::<i32>::FIELD_NAMES, ["inner"]);
+//! ```
+//!
+//! ## Example
+//!
+//! Full example available [here](https://github.com/abdolence/rust-struct-builder/blob/master/rsb_test/examples/builder.rs),
+//! you can run it from the repository with `cargo run -p rsb_test --example builder`.
+//!
+//! Details and source code: <https://github.com/abdolence/rust-struct-builder>
 //!
 
 use proc_macro::TokenStream;
