@@ -27,8 +27,4 @@ jobs:
       - name: 'Installing the minimum supported Rust version'
         uses: dtolnay/rust-toolchain@1.71
       - name: 'Building on the minimum supported Rust version'
-        # The stable toolchain writes a lock file version this cargo cannot read,
-        # so the MSRV cargo resolves dependencies itself.
-        run: |
-          rm -f Cargo.lock
-          cargo +1.71 check -p rsb_derive
+        run: cargo +1.71 check -p rsb_derive
