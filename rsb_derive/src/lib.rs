@@ -5,10 +5,10 @@
 //! ## Motivation
 //! A derive macros to support a builder pattern for Rust:
 //! - Everything except `Option<>` fields and explicitly defined `default` attribute in structs are required, so you
-//! don't need any additional attributes to indicate it, and the presence of required params
-//! is checked at the compile time (not at the runtime).
+//!   don't need any additional attributes to indicate it, and the presence of required params
+//!   is checked at the compile time (not at the runtime).
 //! - To create new struct instances there is `::new` and an auxiliary init struct definition
-//! with only required fields (to compensate the Rust's named params inability).
+//!   with only required fields (to compensate the Rust's named params inability).
 //!
 //! ## Usage:
 //!
@@ -41,8 +41,8 @@
 //! - `<field_name>/reset_<field_name>` : mutable setters for fields
 //! - `new` : factory method with required fields as arguments
 //! - `From<>` instance from an an auxiliary init struct definition with only required fields.
-//! The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()`
-//! functions from it.
+//!   The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()`
+//!   functions from it.
 //!
 //! ## Defaults
 //!
@@ -81,11 +81,10 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                     .generics
                     .params
                     .iter()
-                    .map(|ga| match ga {
+                    .filter_map(|ga| match ga {
                         GenericParam::Type(ref ty) => Some(ty),
                         _ => None,
                     })
-                    .flatten()
                     .collect();
 
                 let struct_generic_params_idents: Vec<&Ident> =
@@ -95,11 +94,10 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                     .generics
                     .params
                     .iter()
-                    .map(|ga| match ga {
+                    .filter_map(|ga| match ga {
                         GenericParam::Lifetime(ref lt) => Some(lt),
                         _ => None,
                     })
-                    .flatten()
                     .collect();
 
                 let struct_generic_where_decl: proc_macro2::TokenStream = struct_item
@@ -217,16 +215,14 @@ fn parse_field_type(field_type: &Type) -> ParsedFieldType {
                 "Option" | "std::option::Option" => {
                     let type_params = &path.path.segments.last().unwrap().arguments;
                     match type_params {
-                        PathArguments::AngleBracketed(ref params) => params
-                            .args
-                            .first()
-                            .map(|ga| match ga {
+                        PathArguments::AngleBracketed(ref params) => {
+                            params.args.first().and_then(|ga| match ga {
                                 GenericArgument::Type(ref ty) => {
                                     Some(ParsedType::OptionalType(Box::from(parse_field_type(ty))))
                                 }
                                 _ => None,
                             })
-                            .flatten(),
+                        }
                         _ => None,
                     }
                 }
@@ -285,7 +281,7 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
 
     match field.parsed_field_type.parsed_type.as_ref() {
         Some(ParsedType::OptionalType(ga_type_box)) => {
-            let parsed_ga_field_type: &ParsedFieldType = &*ga_type_box;
+            let parsed_ga_field_type: &ParsedFieldType = ga_type_box;
             let ga_type = &parsed_ga_field_type.field_type;
 
             quote! {
@@ -390,8 +386,7 @@ fn generate_factory_assignments(fields: &[ParsedField]) -> Vec<proc_macro2::Toke
         .iter()
         .map(|f| {
             let param_name = &f.ident;
-            if f.default_tokens.is_some() {
-                let param_default_value = f.default_tokens.as_ref().unwrap();
+            if let Some(param_default_value) = f.default_tokens.as_ref() {
                 quote! {
                     #param_name : #param_default_value,
                 }
@@ -429,12 +424,11 @@ fn generate_init_struct(
 
     let mut init_fields_generic_params: Vec<&&TypeParam> = required_fields
         .iter()
-        .map(|f| {
+        .filter_map(|f| {
             struct_generic_params
                 .iter()
                 .find(|gp| field_contains_type(&f.parsed_field_type.field_type, gp))
         })
-        .flatten()
         .collect();
 
     init_fields_generic_params.dedup_by_key(|tp| &tp.ident);
@@ -450,12 +444,11 @@ fn generate_init_struct(
 
     let mut init_fields_lifetime_params: Vec<&&LifetimeParam> = required_fields
         .iter()
-        .map(|f| {
+        .filter_map(|f| {
             struct_lifetime_params
                 .iter()
                 .find(|lt| field_contains_lifetime(f, lt))
         })
-        .flatten()
         .collect();
 
     init_fields_lifetime_params.dedup_by_key(|lt| &lt.lifetime.ident);
