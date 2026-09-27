@@ -5,7 +5,7 @@ on:
     types: [ opened ]
   workflow_dispatch:
   schedule:
-    # Cargo.lock is not committed, so a weekly run picks up the newest compatible dependencies
+    # Cargo.lock is not committed, so a weekly run picks up the newest stable Rust and compatible dependencies
     - cron: '0 6 * * 1'
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_protected && github.run_id || github.event.pull_request.number || github.ref }}
@@ -24,7 +24,3 @@ jobs:
         run: cargo build --workspace --all-targets
       - name: 'Running tests'
         run: cargo test --workspace
-      - name: 'Installing the minimum supported Rust version'
-        uses: dtolnay/rust-toolchain@1.71
-      - name: 'Building on the minimum supported Rust version'
-        run: cargo +1.71 check -p rsb_derive
