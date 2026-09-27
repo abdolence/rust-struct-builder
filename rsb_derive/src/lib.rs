@@ -293,7 +293,7 @@ struct ParsedField {
     parsed_field_type: ParsedFieldType,
     default_tokens: Option<proc_macro2::TokenStream>,
     visibility: Visibility,
-    docs: Vec<Attribute>,
+    docs: Vec<LitStr>,
 }
 
 impl ParsedField {
@@ -376,25 +376,99 @@ fn parse_field(field: &Field) -> ParsedField {
     }
 }
 
-/// The field's doc comments, i.e. its outer `#[doc = ...]` attributes. List
-/// forms such as `#[doc(hidden)]` are not documentation text and stay on the
-/// field alone.
-fn parse_field_docs(field: &Field) -> Vec<Attribute> {
-    field
+/// The field's doc comments as they are copied onto the items generated for
+/// it, without their fenced code blocks: rustdoc runs every code block of
+/// every item as a doctest, so a copied example would run once per generated
+/// item. The field itself keeps its docs whole.
+///
+/// Doc comments arrive as one `#[doc]` attribute per line (or one per block
+/// comment), so an open fence is tracked across attributes. A doc value that
+/// is not a string literal, such as `include_str!(..)`, cannot be inspected
+/// for examples and is not copied. List forms such as `#[doc(hidden)]` are not
+/// documentation text and stay on the field alone.
+fn parse_field_docs(field: &Field) -> Vec<LitStr> {
+    let mut open_fence: Option<CodeFence> = None;
+    let docs: Vec<LitStr> = field
         .attrs
         .iter()
-        .filter(|a| {
-            matches!(a.style, AttrStyle::Outer)
-                && a.path().is_ident("doc")
-                && matches!(a.meta, Meta::NameValue(_))
+        .filter(|a| matches!(a.style, AttrStyle::Outer) && a.path().is_ident("doc"))
+        .filter_map(|a| match &a.meta {
+            Meta::NameValue(MetaNameValue {
+                value:
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }),
+                ..
+            }) => Some(s),
+            _ => None,
         })
-        .cloned()
-        .collect()
+        .filter_map(|s| {
+            let text = s.value();
+            let kept: Vec<&str> = text
+                .split('\n')
+                .filter(|line| CodeFence::keeps_line(&mut open_fence, line))
+                .collect();
+            (!kept.is_empty()).then(|| LitStr::new(&kept.join("\n"), s.span()))
+        })
+        .collect();
+
+    if docs.iter().all(|s| s.value().trim().is_empty()) {
+        Vec::new()
+    } else {
+        docs
+    }
+}
+
+/// An open CommonMark code fence: a run of at least three backticks or
+/// tildes, closed by a run of the same character at least as long.
+struct CodeFence {
+    marker: char,
+    len: usize,
+}
+
+impl CodeFence {
+    /// A fence opening or closing on `line`, with the text after it (the info
+    /// string of an opening fence). Indentation is not limited to the three
+    /// spaces CommonMark allows, so a fence nested in a list item counts too.
+    fn parse(line: &str) -> Option<(Self, &str)> {
+        let trimmed = line.trim_start();
+        let marker = trimmed.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+        let rest = trimmed.trim_start_matches(marker);
+        let len = trimmed.len() - rest.len();
+        (len >= 3).then_some((Self { marker, len }, rest))
+    }
+
+    /// Advances the fence state over `line` and says whether the line is
+    /// outside every code block, fence lines included.
+    fn keeps_line(open: &mut Option<Self>, line: &str) -> bool {
+        match (open.as_ref(), Self::parse(line)) {
+            (None, Some((fence, info))) => {
+                // A backtick run followed by another backtick on the line is
+                // inline code, not a fence.
+                if fence.marker == '`' && info.contains('`') {
+                    return true;
+                }
+                *open = Some(fence);
+                false
+            }
+            (None, None) => true,
+            (Some(current), Some((fence, rest))) => {
+                if fence.marker == current.marker
+                    && fence.len >= current.len
+                    && rest.trim().is_empty()
+                {
+                    *open = None;
+                }
+                false
+            }
+            (Some(_), None) => false,
+        }
+    }
 }
 
 /// Doc attributes for a generated item: `summary` as the first paragraph,
 /// followed by the field's own doc comments as a separate paragraph.
-fn doc_block(summary: &str, field_docs: &[Attribute]) -> proc_macro2::TokenStream {
+fn doc_block(summary: &str, field_docs: &[LitStr]) -> proc_macro2::TokenStream {
     // `///` expands to a doc string with a leading space; matching it keeps
     // rustdoc's common-indent stripping uniform across the summary and the
     // propagated lines.
@@ -405,7 +479,7 @@ fn doc_block(summary: &str, field_docs: &[Attribute]) -> proc_macro2::TokenStrea
         quote! {
             #[doc = #summary]
             #[doc = ""]
-            #(#field_docs)*
+            #(#[doc = #field_docs])*
         }
     }
 }
@@ -810,6 +884,120 @@ mod tests {
 
     fn field_names_error(input: &str) -> String {
         field_names_impl(syn::parse_str(input).expect("test input is a valid item")).to_string()
+    }
+
+    /// The doc lines `parse_field_docs` copies from the only field of `src`.
+    fn copied_doc_lines(src: &str) -> Vec<String> {
+        let item: ItemStruct = syn::parse_str(src).expect("test input is a valid struct");
+        let field = item.fields.iter().next().expect("test struct has a field");
+        parse_field_docs(field)
+            .iter()
+            .flat_map(|s| s.value().split('\n').map(str::to_owned).collect::<Vec<_>>())
+            .collect()
+    }
+
+    #[test]
+    fn fenced_blocks_are_not_copied() {
+        let src = "struct S {
+            /// Before.
+            ///
+            /// ```
+            /// let x = 1;
+            /// ```
+            ///
+            /// Between.
+            /// ~~~rust,no_run
+            /// let y = 2;
+            /// ~~~
+            /// After.
+            x: i32,
+        }";
+        assert_eq!(
+            copied_doc_lines(src),
+            [" Before.", "", "", " Between.", " After."]
+        );
+    }
+
+    #[test]
+    fn a_fence_closes_only_on_its_own_marker() {
+        let src = "struct S {
+            /// Text.
+            /// ````markdown
+            /// ```
+            /// ~~~
+            /// ````
+            /// Kept.
+            x: i32,
+        }";
+        assert_eq!(copied_doc_lines(src), [" Text.", " Kept."]);
+    }
+
+    #[test]
+    fn fences_are_tracked_inside_a_block_doc_comment() {
+        let src = "struct S {
+            /** Text.
+            ```
+            let x = 1;
+            ```
+            Kept. */
+            x: i32,
+        }";
+        let lines = copied_doc_lines(src);
+        assert!(
+            lines
+                .iter()
+                .all(|l| !l.contains("```") && !l.contains("let x")),
+            "{lines:?}"
+        );
+        assert!(lines.iter().any(|l| l.contains("Kept.")), "{lines:?}");
+    }
+
+    #[test]
+    fn an_unclosed_fence_runs_to_the_end_of_the_docs() {
+        let src = "struct S {
+            /// Text.
+            /// ```
+            /// let x = 1;
+            x: i32,
+        }";
+        assert_eq!(copied_doc_lines(src), [" Text."]);
+    }
+
+    #[test]
+    fn inline_code_is_not_a_fence() {
+        let src = "struct S {
+            /// ``` inline ``` and `code`.
+            /// Kept.
+            x: i32,
+        }";
+        assert_eq!(
+            copied_doc_lines(src),
+            [" ``` inline ``` and `code`.", " Kept."]
+        );
+    }
+
+    #[test]
+    fn docs_that_are_only_a_code_block_are_not_copied() {
+        let src = "struct S {
+            ///
+            /// ```
+            /// let x = 1;
+            /// ```
+            ///
+            x: i32,
+        }";
+        assert!(copied_doc_lines(src).is_empty());
+    }
+
+    #[test]
+    fn non_literal_docs_are_not_copied() {
+        let src = r#"struct S {
+            /// Kept.
+            #[doc = concat!("Not ", "inspected.")]
+            #[doc(hidden)]
+            x: i32,
+        }"#;
+        assert_eq!(copied_doc_lines(src), [" Kept."]);
     }
 
     #[test]

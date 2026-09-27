@@ -50,6 +50,30 @@ pub mod documented {
         pub retries: u32,
     }
 
+    /// Retry settings whose field docs carry examples. Each example is a
+    /// doctest of the field alone; the items generated for the field copy
+    /// its docs without them.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct RetryPolicy {
+        /// Delay between attempts, in milliseconds.
+        ///
+        /// ```
+        /// let policy = rsb_test::documented::RetryPolicy::new(10);
+        /// assert_eq!(policy.delay_ms, 10);
+        /// ```
+        pub delay_ms: u64,
+        /// Upper bound on attempts; unbounded when `None`.
+        ///
+        /// ~~~rust,no_run
+        /// use rsb_test::documented::RetryPolicy;
+        /// let policy = RetryPolicy::new(10).with_max_attempts(3);
+        /// assert_eq!(policy.max_attempts, Some(3));
+        /// ~~~
+        ///
+        /// Counts the first attempt too.
+        pub max_attempts: Option<u32>,
+    }
+
     /// An HTTP header.
     #[derive(Debug, Clone, PartialEq, rsb_derive::BuilderFieldNames)]
     pub struct Header {
