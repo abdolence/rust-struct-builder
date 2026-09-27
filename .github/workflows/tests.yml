@@ -1,8 +1,9 @@
 name: tests
 on:
   push:
+    branches: [ master ]
   pull_request:
-    types: [ opened ]
+    types: [ opened, synchronize, reopened ]
   workflow_dispatch:
   schedule:
     # Cargo.lock is not committed, so a weekly run picks up the newest stable Rust and compatible dependencies
