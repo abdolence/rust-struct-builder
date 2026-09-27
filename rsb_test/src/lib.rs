@@ -295,9 +295,7 @@ mod tests {
 
     #[test]
     fn struct_with_lifetimes() {
-        let s1 = StructWithLifetime::new("hey")
-            .opt_field("hey")
-            .clone();
+        let s1 = StructWithLifetime::new("hey").opt_field("hey").clone();
 
         assert_eq!(s1.opt_field, Some("hey"));
     }
