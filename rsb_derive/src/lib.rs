@@ -779,13 +779,22 @@ fn generate_init_fields(
         .map(|f| {
             let param_name = &f.ident;
             let param_type = &f.parsed_field_type.field_type;
+            // `Self` in these docs means the struct they were written on, but
+            // here they sit on `<S>Init`, where it would resolve to the init
+            // struct and the link would break.
+            let struct_path = struct_name.to_string();
+            let docs: Vec<LitStr> = f
+                .docs
+                .iter()
+                .map(|s| LitStr::new(&rewrite_self_links(&s.value(), &struct_path), s.span()))
+                .collect();
             let field_doc = doc_block(
                 &format!(
                     "Value for the `{}` field of `{}`.",
                     param_name.unraw(),
                     struct_name.unraw()
                 ),
-                &f.docs,
+                &docs,
             );
 
             quote! {
@@ -794,6 +803,43 @@ fn generate_init_fields(
             }
         })
         .collect()
+}
+
+/// `text` with `Self` replaced by `target` wherever `Self` starts the target
+/// of a Markdown link, which is where rustdoc resolves intra-doc links:
+/// `[Self::x]`, `` [`Self::x`] ``, `[text](Self::x)`, `[text][Self::x]` and a
+/// reference definition `[label]: Self::x`. `Self` elsewhere, in prose or a
+/// code span, is left alone, as is a word merely starting with `Self`.
+fn rewrite_self_links(text: &str, target: &str) -> String {
+    const SELF: &str = "Self";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(pos) = rest.find(SELF) {
+        let (before, from_self) = rest.split_at(pos);
+        let after = &from_self[SELF.len()..];
+        out.push_str(before);
+        let ends_path_segment =
+            after.is_empty() || after.starts_with("::") || after.starts_with([']', '`', ')', '>']);
+        if ends_path_segment && starts_link_target(&out) {
+            out.push_str(target);
+        } else {
+            out.push_str(SELF);
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Whether `before` ends where a link target begins: after an unescaped `[`,
+/// after `](` or `]:`, allowing the backticks, `<` and spaces that may
+/// precede the path.
+fn starts_link_target(before: &str) -> bool {
+    let before = before.trim_end_matches(['`', '<', ' ']);
+    match before.strip_suffix('[') {
+        Some(prefix) => !prefix.ends_with('\\'),
+        None => before.ends_with("](") || before.ends_with("]:"),
+    }
 }
 
 fn generate_init_new_params(fields: &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
@@ -998,6 +1044,54 @@ mod tests {
             x: i32,
         }"#;
         assert_eq!(copied_doc_lines(src), [" Kept."]);
+    }
+
+    #[test]
+    fn self_links_point_at_the_struct() {
+        for (doc, expected) in [
+            ("Uses [`Self::helper`].", "Uses [`Job::helper`]."),
+            ("Uses [Self::helper].", "Uses [Job::helper]."),
+            ("See [this](Self::helper).", "See [this](Job::helper)."),
+            ("See [this](<Self::helper>).", "See [this](<Job::helper>)."),
+            ("See [this][Self::helper].", "See [this][Job::helper]."),
+            ("Part of [`Self`] and [Self].", "Part of [`Job`] and [Job]."),
+            ("[h]: Self::helper", "[h]: Job::helper"),
+            ("[a](Self::a), [b](Self::b)", "[a](Job::a), [b](Job::b)"),
+        ] {
+            assert_eq!(rewrite_self_links(doc, "Job"), expected);
+        }
+    }
+
+    #[test]
+    fn self_outside_link_targets_is_kept() {
+        for doc in [
+            "Self::helper in prose, and `Self::helper` in code.",
+            "Links to [SelfDescribing] and [Self-evident truths].",
+            "An escaped \\[Self::helper] is not a link.",
+            "[see Self::helper] is link text, not a target.",
+        ] {
+            assert_eq!(rewrite_self_links(doc, "Job"), doc);
+        }
+    }
+
+    #[test]
+    fn init_fields_link_to_the_struct_and_methods_keep_self() {
+        let item: ItemStruct = syn::parse_str(
+            "struct Job {
+                /// Checked by [`Self::helper`].
+                name: String,
+            }",
+        )
+        .expect("test input is a valid struct");
+        let Fields::Named(named) = &item.fields else {
+            unreachable!("test struct has named fields")
+        };
+        let fields = parse_fields(named);
+        let init_fields = generate_init_fields(&item.ident, &fields);
+        let init = quote!(#(#init_fields)*).to_string();
+        assert!(init.contains("[`Job::helper`]"), "{init}");
+        let methods = generate_field_functions(&fields[0]).to_string();
+        assert!(methods.contains("[`Self::helper`]"), "{methods}");
     }
 
     #[test]

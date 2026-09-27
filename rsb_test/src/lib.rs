@@ -74,6 +74,22 @@ pub mod documented {
         pub max_attempts: Option<u32>,
     }
 
+    /// A scheduled job whose field docs link to its own items.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct Job {
+        /// Name accepted by [`Self::is_valid_name`].
+        pub name: String,
+        /// Owner, checked like [a name](Self::is_valid_name).
+        pub owner: String,
+    }
+
+    impl Job {
+        /// Whether `name` can name a job.
+        pub fn is_valid_name(name: &str) -> bool {
+            !name.is_empty()
+        }
+    }
+
     /// An HTTP header.
     #[derive(Debug, Clone, PartialEq, rsb_derive::BuilderFieldNames)]
     pub struct Header {
