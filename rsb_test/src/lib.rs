@@ -1,3 +1,88 @@
+#[deny(missing_docs)]
+pub mod documented {
+    //! Builders for public structs, compiled under `deny(missing_docs)`: every
+    //! item the derive generates must carry docs of its own.
+
+    use rsb_derive::Builder;
+
+    /// A network endpoint.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct Endpoint {
+        /// Host name or IP address.
+        pub host: String,
+        /// TCP port.
+        ///
+        /// Zero is not a valid port.
+        pub port: u16,
+        /// Request timeout in seconds.
+        pub timeout_secs: Option<u64>,
+    }
+
+    /// A value with an optional label.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct Tagged<T> {
+        /// The wrapped value.
+        pub value: T,
+        /// Label shown next to the value.
+        pub label: Option<String>,
+    }
+
+    /// A struct whose fields are not all documented.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct PartlyDocumented {
+        /// Display name.
+        pub name: String,
+        // The allow covers only the field itself; the builder items generated
+        // for it are still checked.
+        #[allow(missing_docs)]
+        pub count: i32,
+        #[allow(missing_docs)]
+        pub note: Option<String>,
+    }
+
+    /// A struct with a defaulted field.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct WithDefault {
+        /// Service name.
+        pub service: String,
+        /// Number of retries before giving up.
+        #[default = "3"]
+        pub retries: u32,
+    }
+
+    /// An HTTP header.
+    #[derive(Debug, Clone, PartialEq, rsb_derive::BuilderFieldNames)]
+    pub struct Header {
+        /// Header name.
+        pub name: String,
+        /// Header value.
+        pub value: String,
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn documented_builders_build() {
+            let endpoint: Endpoint = EndpointInit {
+                host: "localhost".into(),
+                port: 8080,
+            }
+            .into();
+            assert_eq!(endpoint.with_timeout_secs(5).timeout_secs, Some(5));
+
+            let tagged = Tagged::new(1).with_label("one".into());
+            assert_eq!(tagged.label.as_deref(), Some("one"));
+
+            let partly = PartlyDocumented::new("n".into(), 1).with_note("x".into());
+            assert_eq!(partly.count, 1);
+
+            assert_eq!(WithDefault::new("svc".into()).retries, 3);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -210,10 +295,95 @@ mod tests {
 
     #[test]
     fn struct_with_lifetimes() {
-        let s1 = StructWithLifetime::new("hey".into())
-            .opt_field("hey".into())
+        let s1 = StructWithLifetime::new("hey")
+            .opt_field("hey")
             .clone();
 
-        assert_eq!(s1.opt_field, Some("hey".into()));
+        assert_eq!(s1.opt_field, Some("hey"));
+    }
+}
+
+#[cfg(test)]
+mod field_names_tests {
+    use rsb_derive::{Builder, BuilderFieldNames};
+
+    #[derive(BuilderFieldNames)]
+    #[allow(dead_code)]
+    struct Plain {
+        first: String,
+        second: i32,
+        third: Option<u8>,
+    }
+
+    #[derive(BuilderFieldNames)]
+    #[allow(dead_code)]
+    struct Generic<'a, T: Clone, const N: usize>
+    where
+        T: Default,
+    {
+        value: T,
+        items: [T; N],
+        label: &'a str,
+    }
+
+    #[derive(BuilderFieldNames)]
+    #[allow(dead_code)]
+    struct GenericSimple<T> {
+        inner: T,
+    }
+
+    #[derive(BuilderFieldNames)]
+    #[allow(dead_code)]
+    struct RawIdent {
+        r#type: String,
+        r#match: i32,
+        plain: bool,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder, BuilderFieldNames)]
+    struct BothDerives {
+        req: String,
+        #[default = "5"]
+        with_default: i32,
+        opt: Option<String>,
+    }
+
+    const PLAIN_FIELD_COUNT: usize = Plain::FIELD_NAMES.len();
+
+    #[test]
+    fn plain_struct_names_in_declaration_order() {
+        assert_eq!(Plain::FIELD_NAMES, ["first", "second", "third"]);
+    }
+
+    #[test]
+    fn generic_struct_names() {
+        assert_eq!(GenericSimple::<i32>::FIELD_NAMES, ["inner"]);
+        assert_eq!(
+            Generic::<'static, i32, 3>::FIELD_NAMES,
+            ["value", "items", "label"]
+        );
+    }
+
+    #[test]
+    fn raw_identifiers_lose_their_prefix() {
+        assert_eq!(RawIdent::FIELD_NAMES, ["type", "match", "plain"]);
+    }
+
+    #[test]
+    fn field_names_alongside_builder() {
+        assert_eq!(BothDerives::FIELD_NAMES, ["req", "with_default", "opt"]);
+        let built = BothDerives::new("r".into()).with_opt("o".into());
+        assert_eq!(built.with_default, 5);
+    }
+
+    #[test]
+    fn field_count_is_usable_in_const_context() {
+        let sized: [u8; PLAIN_FIELD_COUNT] = [0; Plain::FIELD_NAMES.len()];
+        assert_eq!(sized.len(), 3);
+    }
+
+    #[test]
+    fn documented_struct_names() {
+        assert_eq!(crate::documented::Header::FIELD_NAMES, ["name", "value"]);
     }
 }

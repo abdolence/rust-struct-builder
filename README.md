@@ -1,4 +1,5 @@
 [![Cargo](https://img.shields.io/crates/v/rsb_derive.svg)](https://crates.io/crates/rsb_derive)
+[![tests](https://github.com/abdolence/rust-struct-builder/actions/workflows/tests.yml/badge.svg)](https://github.com/abdolence/rust-struct-builder/actions/workflows/tests.yml)
 
 # Opinionated and Option-based builder pattern macro for Rust
 
@@ -16,7 +17,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rsb_derive = "0.4"
+rsb_derive = "0.5"
 ```
 
 The macros generates the following functions and instances for your structures:
@@ -65,7 +66,7 @@ let updated =
     s1.clone()
       .with_opt_field1("hey".into()) // for Option<> fields you specify a bare argument
       .without_opt_field2() // you can reset Option<> if you need it
-      .opt_opt_field1(Some(("hey".into())) // you can use opt_<field> to provide Option<> inputs
+      .opt_opt_field1(Some("hey".into())) // you can use opt_<field> to provide Option<> inputs
       .with_req_field2(10); // you can update required params as well
 
 // All together example
@@ -125,6 +126,49 @@ let my_struct : StructWithDefault = StructWithDefault::from(
 );
 ```
 
+### Documentation
+
+Everything the macro generates has doc comments: a summary line, plus the doc comments
+of the field it works with. So you can use it on public structs in crates
+with `#![deny(missing_docs)]`.
+
+## Field names
+
+The separate `BuilderFieldNames` derive adds an associated const `FIELD_NAMES` with the
+struct's field names in declaration order. It does not need `Builder`, and you can use both on the same struct:
+
+```rust
+use rsb_derive::BuilderFieldNames;
+
+#[derive(BuilderFieldNames)]
+struct Token {
+    pub r#type: String,
+    pub text: String,
+}
+
+// Raw identifiers are listed without their `r#` prefix
+assert_eq!(Token::FIELD_NAMES, ["type", "text"]);
+```
+
+Be aware that for generic structs you need to specify the type parameters,
+even though the names do not depend on them:
+
+```rust
+#[derive(BuilderFieldNames)]
+struct Wrapper<T> {
+    pub inner: T,
+}
+
+assert_eq!(Wrapper::<i32>::FIELD_NAMES, ["inner"]); // `Wrapper::FIELD_NAMES` does not compile
+```
+
+## Example
+
+Full example available [here](rsb_test/examples/builder.rs), you can run it with:
+
+```sh
+cargo run -p rsb_test --example builder
+```
 
 ## Licence
 Apache Software License (ASL)

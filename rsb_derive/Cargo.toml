@@ -1,8 +1,9 @@
 [package]
 name = "rsb_derive"
-version = "0.5.1"
+version = "0.5.2"
 authors = ["Abdulla Abdurakhmanov <me@abdolence.dev>"]
 edition = "2021"
+rust-version = "1.71"
 license = "Apache-2.0"
 description = "An opinionated macro implementation for Rust struct builder pattern with compile-time validation"
 homepage = "https://github.com/abdolence/rust-struct-builder"

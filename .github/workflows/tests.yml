@@ -1,0 +1,26 @@
+name: tests
+on:
+  push:
+  pull_request:
+    types: [ opened ]
+  workflow_dispatch:
+  schedule:
+    # Cargo.lock is not committed, so a weekly run picks up the newest stable Rust and compatible dependencies
+    - cron: '0 6 * * 1'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_protected && github.run_id || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: 'read'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+      - name: 'Building'
+        run: cargo build --workspace --all-targets
+      - name: 'Running tests'
+        run: cargo test --workspace

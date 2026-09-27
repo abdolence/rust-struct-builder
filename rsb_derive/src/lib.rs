@@ -5,10 +5,10 @@
 //! ## Motivation
 //! A derive macros to support a builder pattern for Rust:
 //! - Everything except `Option<>` fields and explicitly defined `default` attribute in structs are required, so you
-//! don't need any additional attributes to indicate it, and the presence of required params
-//! is checked at the compile time (not at the runtime).
+//!   don't need any additional attributes to indicate it, and the presence of required params
+//!   is checked at the compile time (not at the runtime).
 //! - To create new struct instances there is `::new` and an auxiliary init struct definition
-//! with only required fields (to compensate the Rust's named params inability).
+//!   with only required fields (to compensate the Rust's named params inability).
 //!
 //! ## Usage:
 //!
@@ -41,8 +41,8 @@
 //! - `<field_name>/reset_<field_name>` : mutable setters for fields
 //! - `new` : factory method with required fields as arguments
 //! - `From<>` instance from an an auxiliary init struct definition with only required fields.
-//! The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()`
-//! functions from it.
+//!   The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()`
+//!   functions from it.
 //!
 //! ## Defaults
 //!
@@ -61,13 +61,74 @@
 //! }
 //! ```
 //!
-//! Details and source code: [https://github.com/abdolence/rust-struct-builder]: https://github.com/abdolence/rust-struct-builder
+//! ## Documentation
+//!
+//! Everything the macro generates has doc comments: a summary line, plus the doc comments
+//! of the field it works with. So you can use it on public structs in crates
+//! with `#![deny(missing_docs)]`:
+//!
+//! ```
+//! /// Connection settings.
+//! #[deny(missing_docs)]
+//! pub mod settings {
+//!     use rsb_derive::Builder;
+//!
+//!     /// Where and how to connect.
+//!     #[derive(Builder)]
+//!     pub struct Connection {
+//!         /// Host name or IP address to connect to.
+//!         pub host: String,
+//!         /// User to connect as.
+//!         pub user: Option<String>,
+//!     }
+//! }
+//! # fn main() {}
+//! ```
+//!
+//! ## Field names
+//!
+//! The separate `BuilderFieldNames` derive adds an associated const with the
+//! struct's field names in declaration order. It does not need `Builder`.
+//!
+//! ```
+//! use rsb_derive::BuilderFieldNames;
+//!
+//! #[derive(BuilderFieldNames)]
+//! struct Token {
+//!     pub r#type: String,
+//!     pub text: String,
+//! }
+//!
+//! // Raw identifiers are listed without their `r#` prefix.
+//! assert_eq!(Token::FIELD_NAMES, ["type", "text"]);
+//! ```
+//!
+//! Be aware that for generic structs you need to specify the type parameters,
+//! even though the names do not depend on them. `Wrapper::FIELD_NAMES` does not compile:
+//!
+//! ```
+//! use rsb_derive::BuilderFieldNames;
+//!
+//! #[derive(BuilderFieldNames)]
+//! struct Wrapper<T> {
+//!     pub inner: T,
+//! }
+//!
+//! assert_eq!(Wrapper::<i32>::FIELD_NAMES, ["inner"]);
+//! ```
+//!
+//! ## Example
+//!
+//! Full example available [here](https://github.com/abdolence/rust-struct-builder/blob/master/rsb_test/examples/builder.rs),
+//! you can run it from the repository with `cargo run -p rsb_test --example builder`.
+//!
+//! Details and source code: <https://github.com/abdolence/rust-struct-builder>
 //!
 
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::*;
-use std::ops::Index;
+use syn::ext::IdentExt;
 use syn::*;
 
 #[proc_macro_derive(Builder, attributes(default))]
@@ -82,25 +143,23 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                     .generics
                     .params
                     .iter()
-                    .map(|ga| match ga {
+                    .filter_map(|ga| match ga {
                         GenericParam::Type(ref ty) => Some(ty),
                         _ => None,
                     })
-                    .flatten()
                     .collect();
 
                 let struct_generic_params_idents: Vec<&Ident> =
                     struct_generic_params.iter().map(|gp| &gp.ident).collect();
 
-                let struct_lifetime_params: Vec<&LifetimeDef> = struct_item
+                let struct_lifetime_params: Vec<&LifetimeParam> = struct_item
                     .generics
                     .params
                     .iter()
-                    .map(|ga| match ga {
+                    .filter_map(|ga| match ga {
                         GenericParam::Lifetime(ref lt) => Some(lt),
                         _ => None,
                     })
-                    .flatten()
                     .collect();
 
                 let struct_generic_where_decl: proc_macro2::TokenStream = struct_item
@@ -111,7 +170,7 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
 
                 let struct_fields = parse_fields(named_fields);
 
-                let generated_factory_method = generate_factory_method(&struct_fields);
+                let generated_factory_method = generate_factory_method(struct_name, &struct_fields);
                 let generated_fields_methods = generate_fields_functions(&struct_fields);
 
                 let generated_aux_init_struct = generate_init_struct(
@@ -158,6 +217,53 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
     }
 }
 
+#[proc_macro_derive(BuilderFieldNames)]
+pub fn struct_field_names_macro(input: TokenStream) -> TokenStream {
+    let item: syn::Item = syn::parse(input).expect("failed to parse input");
+    let span = Span::call_site();
+    match item {
+        Item::Struct(ref struct_item) => match struct_item.fields {
+            Fields::Named(ref named_fields) => {
+                let struct_name = &struct_item.ident;
+                let (impl_generics, ty_generics, where_clause) =
+                    struct_item.generics.split_for_impl();
+
+                let field_names: Vec<String> = named_fields
+                    .named
+                    .iter()
+                    .filter_map(|f| f.ident.as_ref())
+                    .map(|ident| ident.unraw().to_string())
+                    .collect();
+                let field_count = field_names.len();
+
+                let names_doc = doc_block(
+                    &format!(
+                        "Names of the fields of `{}`, in declaration order.",
+                        struct_name.unraw()
+                    ),
+                    &[],
+                );
+
+                let output = quote! {
+                    #[allow(dead_code)]
+                    impl #impl_generics #struct_name #ty_generics #where_clause {
+                        #names_doc
+                        pub const FIELD_NAMES: [&'static str; #field_count] = [#(#field_names),*];
+                    }
+                };
+
+                output.into()
+            }
+            _ => Error::new(span, "Builder works only on the structs with named fields")
+                .to_compile_error()
+                .into(),
+        },
+        _ => Error::new(span, "Builder derive works only on structs")
+            .to_compile_error()
+            .into(),
+    }
+}
+
 #[allow(clippy::enum_variant_names)]
 #[derive(Clone)]
 enum ParsedType {
@@ -185,6 +291,7 @@ struct ParsedField {
     parsed_field_type: ParsedFieldType,
     default_tokens: Option<proc_macro2::TokenStream>,
     visibility: Visibility,
+    docs: Vec<Attribute>,
 }
 
 impl ParsedField {
@@ -218,16 +325,14 @@ fn parse_field_type(field_type: &Type) -> ParsedFieldType {
                 "Option" | "std::option::Option" => {
                     let type_params = &path.path.segments.last().unwrap().arguments;
                     match type_params {
-                        PathArguments::AngleBracketed(ref params) => params
-                            .args
-                            .first()
-                            .map(|ga| match ga {
+                        PathArguments::AngleBracketed(ref params) => {
+                            params.args.first().and_then(|ga| match ga {
                                 GenericArgument::Type(ref ty) => {
                                     Some(ParsedType::OptionalType(Box::from(parse_field_type(ty))))
                                 }
                                 _ => None,
                             })
-                            .flatten(),
+                        }
                         _ => None,
                     }
                 }
@@ -265,6 +370,41 @@ fn parse_field(field: &Field) -> ParsedField {
         parsed_field_type: parse_field_type(&field.ty),
         default_tokens: parse_field_default_attr(field),
         visibility: field.vis.clone(),
+        docs: parse_field_docs(field),
+    }
+}
+
+/// The field's doc comments, i.e. its outer `#[doc = ...]` attributes. List
+/// forms such as `#[doc(hidden)]` are not documentation text and stay on the
+/// field alone.
+fn parse_field_docs(field: &Field) -> Vec<Attribute> {
+    field
+        .attrs
+        .iter()
+        .filter(|a| {
+            matches!(a.style, AttrStyle::Outer)
+                && a.path().is_ident("doc")
+                && matches!(a.meta, Meta::NameValue(_))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Doc attributes for a generated item: `summary` as the first paragraph,
+/// followed by the field's own doc comments as a separate paragraph.
+fn doc_block(summary: &str, field_docs: &[Attribute]) -> proc_macro2::TokenStream {
+    // `///` expands to a doc string with a leading space; matching it keeps
+    // rustdoc's common-indent stripping uniform across the summary and the
+    // propagated lines.
+    let summary = format!(" {summary}");
+    if field_docs.is_empty() {
+        quote! { #[doc = #summary] }
+    } else {
+        quote! {
+            #[doc = #summary]
+            #[doc = ""]
+            #(#field_docs)*
+        }
     }
 }
 
@@ -284,30 +424,48 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
     let field_type = &field.parsed_field_type.field_type;
     let field_visibility = &field.visibility;
 
+    let shown_name = field_name.unraw();
+    let doc = |summary: String| doc_block(&summary, &field.docs);
+
     match field.parsed_field_type.parsed_type.as_ref() {
         Some(ParsedType::OptionalType(ga_type_box)) => {
-            let parsed_ga_field_type: &ParsedFieldType = &*ga_type_box;
+            let parsed_ga_field_type: &ParsedFieldType = ga_type_box;
             let ga_type = &parsed_ga_field_type.field_type;
 
+            let set_doc = doc(format!("Sets `{shown_name}` to `Some(value)`."));
+            let reset_doc = doc(format!("Sets `{shown_name}` to `None`."));
+            let mut_opt_doc = doc(format!("Sets `{shown_name}` to the given `Option`."));
+            let with_doc = doc(format!(
+                "Returns `self` with `{shown_name}` set to `Some(value)`."
+            ));
+            let without_doc = doc(format!("Returns `self` with `{shown_name}` set to `None`."));
+            let opt_doc = doc(format!(
+                "Returns `self` with `{shown_name}` set to the given `Option`."
+            ));
+
             quote! {
+                #set_doc
                 #[inline]
                 #field_visibility fn #set_field_name(&mut self, value : #ga_type) -> &mut Self {
                     self.#field_name = Some(value);
                     self
                 }
 
+                #reset_doc
                 #[inline]
                 #field_visibility fn #reset_field_name(&mut self) -> &mut Self {
                     self.#field_name = None;
                     self
                 }
 
+                #mut_opt_doc
                 #[inline]
                 #field_visibility fn #mut_opt_field_name(&mut self, value : #field_type) -> &mut Self {
                     self.#field_name = value;
                     self
                 }
 
+                #with_doc
                 #[inline]
                 #field_visibility fn #with_field_name(self, value : #ga_type) -> Self {
                     Self {
@@ -316,6 +474,7 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
                     }
                 }
 
+                #without_doc
                 #[inline]
                 #field_visibility fn #without_field_name(self) -> Self {
                     Self {
@@ -324,6 +483,7 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
                     }
                 }
 
+                #opt_doc
                 #[inline]
                 #field_visibility fn #opt_field_name(self, value : #field_type) -> Self {
                     Self {
@@ -334,13 +494,20 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
             }
         }
         _ => {
+            let set_doc = doc(format!("Sets `{shown_name}` to `value`."));
+            let with_doc = doc(format!(
+                "Returns `self` with `{shown_name}` set to `value`."
+            ));
+
             quote! {
+                #set_doc
                 #[inline]
                 #field_visibility fn #set_field_name(&mut self, value : #field_type) -> &mut Self {
                     self.#field_name = value;
                     self
                 }
 
+                #with_doc
                 #[inline]
                 #field_visibility fn #with_field_name(self, value : #field_type) -> Self {
                     Self {
@@ -353,7 +520,10 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
     }
 }
 
-fn generate_factory_method(fields: &Vec<ParsedField>) -> proc_macro2::TokenStream {
+fn generate_factory_method(
+    struct_name: &Ident,
+    fields: &Vec<ParsedField>,
+) -> proc_macro2::TokenStream {
     let required_fields: Vec<ParsedField> = fields
         .clone()
         .into_iter()
@@ -362,8 +532,17 @@ fn generate_factory_method(fields: &Vec<ParsedField>) -> proc_macro2::TokenStrea
 
     let generated_new_params = generate_new_params(&required_fields);
     let generated_factory_assignments = generate_factory_assignments(fields);
+    let new_doc = doc_block(
+        &format!(
+            "Creates a new `{}` from its required fields. `Option` fields start as `None`, \
+             and fields with `#[default]` take their default.",
+            struct_name.unraw()
+        ),
+        &[],
+    );
 
     quote! {
+        #new_doc
         pub fn new(#(#generated_new_params)*) -> Self {
             Self {
                 #(#generated_factory_assignments)*
@@ -391,8 +570,7 @@ fn generate_factory_assignments(fields: &[ParsedField]) -> Vec<proc_macro2::Toke
         .iter()
         .map(|f| {
             let param_name = &f.ident;
-            if f.default_tokens.is_some() {
-                let param_default_value = f.default_tokens.as_ref().unwrap();
+            if let Some(param_default_value) = f.default_tokens.as_ref() {
                 quote! {
                     #param_name : #param_default_value,
                 }
@@ -414,7 +592,7 @@ fn generate_init_struct(
     fields: &Vec<ParsedField>,
     struct_generic_params: &Vec<&TypeParam>,
     struct_generic_params_idents: &Vec<&Ident>,
-    struct_lifetime_params: &Vec<&LifetimeDef>,
+    struct_lifetime_params: &Vec<&LifetimeParam>,
     struct_where_decl: Option<&syn::WhereClause>,
 ) -> proc_macro2::TokenStream {
     let init_struct_name = format_ident!("{}Init", struct_name);
@@ -425,17 +603,23 @@ fn generate_init_struct(
         .filter(|f| f.is_required_field())
         .collect();
 
-    let generated_init_fields = generate_init_fields(&required_fields);
+    let generated_init_fields = generate_init_fields(struct_name, &required_fields);
+    let init_struct_doc = doc_block(
+        &format!(
+            "Required fields of `{0}`; convert with `{0}::from` or `.into()`.",
+            struct_name.unraw()
+        ),
+        &[],
+    );
     let generated_init_new_params = generate_init_new_params(&required_fields);
 
     let mut init_fields_generic_params: Vec<&&TypeParam> = required_fields
         .iter()
-        .map(|f| {
+        .filter_map(|f| {
             struct_generic_params
                 .iter()
                 .find(|gp| field_contains_type(&f.parsed_field_type.field_type, gp))
         })
-        .flatten()
         .collect();
 
     init_fields_generic_params.dedup_by_key(|tp| &tp.ident);
@@ -449,14 +633,13 @@ fn generate_init_struct(
         .as_ref()
         .map_or(quote! {}, |wh| quote! { #wh });
 
-    let mut init_fields_lifetime_params: Vec<&&LifetimeDef> = required_fields
+    let mut init_fields_lifetime_params: Vec<&&LifetimeParam> = required_fields
         .iter()
-        .map(|f| {
+        .filter_map(|f| {
             struct_lifetime_params
                 .iter()
                 .find(|lt| field_contains_lifetime(f, lt))
         })
-        .flatten()
         .collect();
 
     init_fields_lifetime_params.dedup_by_key(|lt| &lt.lifetime.ident);
@@ -474,6 +657,7 @@ fn generate_init_struct(
             };
 
         quote! {
+            #init_struct_doc
             #[allow(dead_code)]
             #[allow(clippy::needless_update)]
             pub struct #init_struct_name {
@@ -491,6 +675,7 @@ fn generate_init_struct(
         }
     } else {
         quote! {
+            #init_struct_doc
             #[allow(dead_code)]
             #[allow(clippy::needless_update)]
             pub struct #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params),* > {
@@ -509,14 +694,26 @@ fn generate_init_struct(
     }
 }
 
-fn generate_init_fields(fields: &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
+fn generate_init_fields(
+    struct_name: &Ident,
+    fields: &Vec<ParsedField>,
+) -> Vec<proc_macro2::TokenStream> {
     fields
         .iter()
         .map(|f| {
             let param_name = &f.ident;
             let param_type = &f.parsed_field_type.field_type;
+            let field_doc = doc_block(
+                &format!(
+                    "Value for the `{}` field of `{}`.",
+                    param_name.unraw(),
+                    struct_name.unraw()
+                ),
+                &f.docs,
+            );
 
             quote! {
+                #field_doc
                 pub #param_name : #param_type,
             }
         })
@@ -539,33 +736,32 @@ fn parse_field_default_attr(field: &Field) -> Option<proc_macro2::TokenStream> {
     field
         .attrs
         .iter()
-        .find(|a| match a.style {
-            AttrStyle::Outer => a
-                .path
-                .segments
-                .first()
-                .iter()
-                .any(|s| s.ident.eq("default")),
-            _ => false,
-        })
-        .and_then(|a| {
-            let attr_tokens: &Vec<proc_macro2::TokenTree> = &a.tokens.clone().into_iter().collect();
-            if attr_tokens.len() > 1 {
-                match attr_tokens.last().unwrap() {
-                    proc_macro2::TokenTree::Literal(lit) => {
-                        let lit_str = format!("{}", lit);
-                        let lit_unquoted_str = lit_str.index(1..lit_str.len() - 1);
-                        let lit_stream: proc_macro2::TokenStream =
-                            syn::parse_str(lit_unquoted_str).unwrap();
-                        Some(quote! {
-                            #lit_stream
-                        })
-                    }
-                    _ => None,
-                }
-            } else {
-                None
-            }
+        .find(|a| matches!(a.style, AttrStyle::Outer) && a.path().is_ident("default"))
+        .and_then(|a| match &a.meta {
+            Meta::NameValue(MetaNameValue {
+                value:
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }),
+                ..
+            }) => Some(
+                // An unparsable default becomes a compile error spanned on the
+                // attribute's string, in place of the default expression.
+                s.parse::<proc_macro2::TokenStream>()
+                    .unwrap_or_else(|e| e.to_compile_error()),
+            ),
+            // Dropping `#[default = 10]` would silently make the field
+            // required, so it is an error in place of the default. The path
+            // and list forms stay ignored: other derives (SmartDefault, for
+            // one) share the `default` attribute name.
+            Meta::NameValue(_) => Some(
+                Error::new_spanned(
+                    a,
+                    "expected a string literal: `#[default = \"<expression>\"]`",
+                )
+                .to_compile_error(),
+            ),
+            _ => None,
         })
 }
 
@@ -587,7 +783,7 @@ fn field_contains_type(field_type: &Type, tp: &TypeParam) -> bool {
     }
 }
 
-fn field_contains_lifetime(field: &ParsedField, lt: &LifetimeDef) -> bool {
+fn field_contains_lifetime(field: &ParsedField, lt: &LifetimeParam) -> bool {
     field
         .parsed_field_type
         .lifetime
@@ -597,7 +793,7 @@ fn field_contains_lifetime(field: &ParsedField, lt: &LifetimeDef) -> bool {
         || field_contains_lifetime_type(&field.parsed_field_type.field_type, lt)
 }
 
-fn field_contains_lifetime_type(field_type: &Type, lt: &LifetimeDef) -> bool {
+fn field_contains_lifetime_type(field_type: &Type, lt: &LifetimeParam) -> bool {
     match field_type {
         Type::Path(ref path) => path.path.segments.iter().any(|s| match s.arguments {
             PathArguments::AngleBracketed(ref params) => params.args.iter().any(|ga| match ga {
