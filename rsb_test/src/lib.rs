@@ -50,6 +50,46 @@ pub mod documented {
         pub retries: u32,
     }
 
+    /// Retry settings whose field docs carry examples. Each example is a
+    /// doctest of the field alone; the items generated for the field copy
+    /// its docs without them.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct RetryPolicy {
+        /// Delay between attempts, in milliseconds.
+        ///
+        /// ```
+        /// let policy = rsb_test::documented::RetryPolicy::new(10);
+        /// assert_eq!(policy.delay_ms, 10);
+        /// ```
+        pub delay_ms: u64,
+        /// Upper bound on attempts; unbounded when `None`.
+        ///
+        /// ~~~rust,no_run
+        /// use rsb_test::documented::RetryPolicy;
+        /// let policy = RetryPolicy::new(10).with_max_attempts(3);
+        /// assert_eq!(policy.max_attempts, Some(3));
+        /// ~~~
+        ///
+        /// Counts the first attempt too.
+        pub max_attempts: Option<u32>,
+    }
+
+    /// A scheduled job whose field docs link to its own items.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct Job {
+        /// Name accepted by [`Self::is_valid_name`].
+        pub name: String,
+        /// Owner, checked like [a name](Self::is_valid_name).
+        pub owner: String,
+    }
+
+    impl Job {
+        /// Whether `name` can name a job.
+        pub fn is_valid_name(name: &str) -> bool {
+            !name.is_empty()
+        }
+    }
+
     /// An HTTP header.
     #[derive(Debug, Clone, PartialEq, rsb_derive::BuilderFieldNames)]
     pub struct Header {
@@ -295,9 +335,7 @@ mod tests {
 
     #[test]
     fn struct_with_lifetimes() {
-        let s1 = StructWithLifetime::new("hey")
-            .opt_field("hey")
-            .clone();
+        let s1 = StructWithLifetime::new("hey").opt_field("hey").clone();
 
         assert_eq!(s1.opt_field, Some("hey"));
     }
@@ -385,5 +423,206 @@ mod field_names_tests {
     #[test]
     fn documented_struct_names() {
         assert_eq!(crate::documented::Header::FIELD_NAMES, ["name", "value"]);
+    }
+}
+
+#[cfg(test)]
+mod literal_default_tests {
+    use rsb_derive::Builder;
+    use smart_default::SmartDefault;
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct LiteralDefaults {
+        req: String,
+        #[default = 100]
+        int: i32,
+        #[default = 12.5]
+        float: f64,
+        #[default = true]
+        flag: bool,
+        #[default = 'x']
+        ch: char,
+        #[default = b'a']
+        byte: u8,
+        #[default = "Some(11)"]
+        opt_from_string: Option<i32>,
+    }
+
+    #[test]
+    fn non_string_literal_is_the_default_value() {
+        let s = LiteralDefaults::new("r".into());
+        assert_eq!(s.int, 100);
+        assert_eq!(s.float, 12.5);
+        assert!(s.flag);
+        assert_eq!(s.ch, 'x');
+        assert_eq!(s.byte, b'a');
+        assert_eq!(s.opt_from_string, Some(11));
+    }
+
+    #[test]
+    fn literal_defaulted_fields_are_not_in_init() {
+        let s: LiteralDefaults = LiteralDefaultsInit { req: "r".into() }.into();
+        assert_eq!(s.int, 100);
+        assert_eq!(s.with_int(1).int, 1);
+    }
+
+    /// SmartDefault reads the same `default` attribute: the name-value form
+    /// is a default for both derives, the list form only for SmartDefault.
+    #[derive(Debug, Clone, PartialEq, Builder, SmartDefault)]
+    struct SharedWithSmartDefault {
+        #[default = true]
+        flag: bool,
+        #[default = 100]
+        count: i32,
+        #[default(7)]
+        listed: i32,
+        name: Option<String>,
+    }
+
+    #[test]
+    fn literal_defaults_coexist_with_smart_default() {
+        let built = SharedWithSmartDefault::new(3);
+        assert!(built.flag);
+        assert_eq!(built.count, 100);
+        assert_eq!(built.listed, 3);
+        assert_eq!(built.name, None);
+
+        let defaulted = SharedWithSmartDefault::default();
+        assert!(defaulted.flag);
+        assert_eq!(defaulted.count, 100);
+        assert_eq!(defaulted.listed, 7);
+
+        let from_init: SharedWithSmartDefault = SharedWithSmartDefaultInit { listed: 7 }.into();
+        assert_eq!(from_init, defaulted);
+    }
+}
+
+#[cfg(test)]
+mod struct_shape_tests {
+    use rsb_derive::Builder;
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct RawIdentFields {
+        r#type: String,
+        r#match: Option<i32>,
+        #[default = "1"]
+        r#loop: u8,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct RefItem<'a, T> {
+        r: &'a str,
+        t: T,
+        o: Option<T>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct Buf<const N: usize> {
+        data: [u8; N],
+        len: Option<usize>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct ArrayOf<T, const N: usize> {
+        items: [T; N],
+        label: Option<String>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct Defaulted<T = i32, const N: usize = 2> {
+        t: T,
+        pair: [T; N],
+        o: Option<T>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct OnlyOptional<T> {
+        o: Option<T>,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct OnlyOptionalRef<'a, 'b> {
+        a: Option<&'a str>,
+        b: Option<&'b str>,
+    }
+
+    #[test]
+    fn raw_identifier_fields() {
+        let built = RawIdentFields::new("t".into());
+        let from_init: RawIdentFields = RawIdentFieldsInit { r#type: "t".into() }.into();
+        assert_eq!(built, from_init);
+        assert_eq!(built.r#loop, 1);
+
+        let with = built.with_type("u".into()).with_match(3).with_loop(2);
+        assert_eq!(with.r#type, "u");
+        assert_eq!(with.r#match, Some(3));
+        assert_eq!(with.r#loop, 2);
+        assert_eq!(with.clone().without_match().r#match, None);
+        assert_eq!(with.clone().opt_match(Some(5)).r#match, Some(5));
+
+        let mut mutated = with;
+        mutated.r#type("v".into()).r#match(4).r#loop(7);
+        assert_eq!(
+            (mutated.r#type.as_str(), mutated.r#match, mutated.r#loop),
+            ("v", Some(4), 7)
+        );
+        mutated.reset_match();
+        assert_eq!(mutated.r#match, None);
+        mutated.mopt_match(Some(6));
+        assert_eq!(mutated.r#match, Some(6));
+    }
+
+    #[test]
+    fn lifetime_with_type_parameter() {
+        let built = RefItem::new("r", 1);
+        let from_init: RefItem<'_, i32> = RefItemInit { r: "r", t: 1 }.into();
+        assert_eq!(built, from_init);
+
+        let with = built.with_r("s").with_t(2).with_o(3);
+        assert_eq!((with.r, with.t, with.o), ("s", 2, Some(3)));
+    }
+
+    #[test]
+    fn const_generic_parameters() {
+        let built = Buf::new([1, 2, 3]);
+        let from_init: Buf<3> = BufInit { data: [1, 2, 3] }.into();
+        assert_eq!(built, from_init);
+        let with = built.with_data([4, 5, 6]).with_len(3);
+        assert_eq!((with.data, with.len), ([4, 5, 6], Some(3)));
+
+        let array = ArrayOf::new(["a", "b"]);
+        let from_init: ArrayOf<&str, 2> = ArrayOfInit { items: ["a", "b"] }.into();
+        assert_eq!(array, from_init);
+        let with = array.with_items(["c", "d"]).with_label("l".into());
+        assert_eq!(with.items, ["c", "d"]);
+        assert_eq!(with.label.as_deref(), Some("l"));
+    }
+
+    #[test]
+    fn type_parameter_defaults() {
+        let built: Defaulted = Defaulted::new(1, [2, 3]);
+        let from_init: Defaulted = DefaultedInit { t: 1, pair: [2, 3] }.into();
+        assert_eq!(built, from_init);
+        let with = built.with_t(4).with_pair([5, 6]).with_o(7);
+        assert_eq!((with.t, with.pair, with.o), (4, [5, 6], Some(7)));
+
+        let other: Defaulted<&str, 1> = DefaultedInit {
+            t: "t",
+            pair: ["p"],
+        }
+        .into();
+        assert_eq!(other.t, "t");
+    }
+
+    #[test]
+    fn generic_struct_without_required_fields() {
+        let built: OnlyOptional<i32> = OnlyOptional::new();
+        let from_init: OnlyOptional<i32> = OnlyOptionalInit {}.into();
+        assert_eq!(built, from_init);
+        assert_eq!(built.with_o(1).o, Some(1));
+
+        let refs: OnlyOptionalRef = OnlyOptionalRefInit {}.into();
+        let with = refs.with_a("a").with_b("b");
+        assert_eq!((with.a, with.b), (Some("a"), Some("b")));
     }
 }

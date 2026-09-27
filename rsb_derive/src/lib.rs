@@ -10,6 +10,8 @@
 //! - To create new struct instances there is `::new` and an auxiliary init struct definition
 //!   with only required fields (to compensate the Rust's named params inability).
 //!
+//! The minimum supported Rust version is 1.71.
+//!
 //! ## Usage:
 //!
 //! ```
@@ -61,6 +63,30 @@
 //! }
 //! ```
 //!
+//! The value of `default` is read like this:
+//! - a string holds an expression, so `#[default="10"]` and `#[default="Some(11)"]` are the source code of the value;
+//! - any other literal is the value itself: `#[default = 100]`, `#[default = 12.5]`, `#[default = true]`;
+//! - `#[default]` and `#[default(...)]` are left to other derives, like `SmartDefault`, and the field stays required.
+//!
+//! ```
+//! use rsb_derive::Builder;
+//!
+//! #[derive(Debug, Clone, PartialEq, Builder)]
+//! struct Settings {
+//!     pub name: String,
+//!     #[default = 100]
+//!     pub limit: u32,
+//!     #[default = true]
+//!     pub enabled: bool,
+//! }
+//!
+//! let settings = Settings::new("test".into());
+//! assert_eq!((settings.limit, settings.enabled), (100, true));
+//! ```
+//!
+//! Be aware this changed in 0.5.2. Before it, a non-string literal like `#[default = true]` was ignored
+//! and the field stayed required. Now such fields are not in `new()` and `Init` anymore, so remove them from these calls.
+//!
 //! ## Documentation
 //!
 //! Everything the macro generates has doc comments: a summary line, plus the doc comments
@@ -83,6 +109,44 @@
 //!     }
 //! }
 //! # fn main() {}
+//! ```
+//!
+//! Code blocks in field docs stay on the field only and are not copied to the generated items,
+//! otherwise rustdoc would run the same example as a doctest once per item.
+//! `Self::` links in field docs are rewritten on `Init` fields, so they still point to your struct.
+//!
+//! ## Raw identifiers and generics
+//!
+//! Fields with raw identifiers are supported. The mutable setter keeps the `r#` prefix,
+//! other functions drop it:
+//!
+//! ```
+//! use rsb_derive::Builder;
+//!
+//! #[derive(Debug, Clone, Builder)]
+//! struct Rule {
+//!     pub r#type: String,
+//!     pub r#match: Option<i32>,
+//! }
+//!
+//! let mut rule = Rule::new("word".into()).with_type("number".into()).with_match(1);
+//! rule.r#type("text".into()).reset_match();
+//! ```
+//!
+//! Generic structs work with lifetimes, type parameters, const generics and defaults for them,
+//! also all mixed together:
+//!
+//! ```
+//! use rsb_derive::Builder;
+//!
+//! #[derive(Debug, Clone, Builder)]
+//! struct Buffer<'a, T, const N: usize = 2> {
+//!     pub name: &'a str,
+//!     pub items: [T; N],
+//!     pub label: Option<String>,
+//! }
+//!
+//! let buffer: Buffer<i32> = Buffer::new("buf", [1, 2]).with_label("numbers".into());
 //! ```
 //!
 //! ## Field names
@@ -128,7 +192,9 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::*;
+use std::collections::HashSet;
 use syn::ext::IdentExt;
+use syn::visit::{self, Visit};
 use syn::*;
 
 #[proc_macro_derive(Builder, attributes(default))]
@@ -139,65 +205,20 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
         Item::Struct(ref struct_item) => match struct_item.fields {
             Fields::Named(ref named_fields) => {
                 let struct_name = &struct_item.ident;
-                let struct_generic_params: Vec<&TypeParam> = struct_item
-                    .generics
-                    .params
-                    .iter()
-                    .filter_map(|ga| match ga {
-                        GenericParam::Type(ref ty) => Some(ty),
-                        _ => None,
-                    })
-                    .collect();
-
-                let struct_generic_params_idents: Vec<&Ident> =
-                    struct_generic_params.iter().map(|gp| &gp.ident).collect();
-
-                let struct_lifetime_params: Vec<&LifetimeParam> = struct_item
-                    .generics
-                    .params
-                    .iter()
-                    .filter_map(|ga| match ga {
-                        GenericParam::Lifetime(ref lt) => Some(lt),
-                        _ => None,
-                    })
-                    .collect();
-
-                let struct_generic_where_decl: proc_macro2::TokenStream = struct_item
-                    .generics
-                    .where_clause
-                    .as_ref()
-                    .map_or(quote! {}, |wh| quote! { #wh });
+                let generics = &struct_item.generics;
+                let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
                 let struct_fields = parse_fields(named_fields);
 
                 let generated_factory_method = generate_factory_method(struct_name, &struct_fields);
                 let generated_fields_methods = generate_fields_functions(&struct_fields);
-
-                let generated_aux_init_struct = generate_init_struct(
-                    struct_name,
-                    &struct_fields,
-                    &struct_generic_params,
-                    &struct_generic_params_idents,
-                    &struct_lifetime_params,
-                    struct_item.generics.where_clause.as_ref(),
-                );
-
-                let struct_decl: proc_macro2::TokenStream = if struct_generic_params.is_empty()
-                    && struct_lifetime_params.is_empty()
-                {
-                    quote! {
-                        impl #struct_name
-                    }
-                } else {
-                    quote! {
-                        impl <#(#struct_lifetime_params),* #(#struct_generic_params),* > #struct_name <#(#struct_lifetime_params),*  #(#struct_generic_params_idents),* > #struct_generic_where_decl
-                    }
-                };
+                let generated_aux_init_struct =
+                    generate_init_struct(struct_name, &struct_fields, generics);
 
                 let output = quote! {
                     #[allow(dead_code)]
                     #[allow(clippy::needless_update)]
-                    #struct_decl {
+                    impl #impl_generics #struct_name #ty_generics #where_clause {
                         #generated_factory_method
                         #(#generated_fields_methods)*
                     }
@@ -220,6 +241,10 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(BuilderFieldNames)]
 pub fn struct_field_names_macro(input: TokenStream) -> TokenStream {
     let item: syn::Item = syn::parse(input).expect("failed to parse input");
+    field_names_impl(item).into()
+}
+
+fn field_names_impl(item: syn::Item) -> proc_macro2::TokenStream {
     let span = Span::call_site();
     match item {
         Item::Struct(ref struct_item) => match struct_item.fields {
@@ -244,23 +269,21 @@ pub fn struct_field_names_macro(input: TokenStream) -> TokenStream {
                     &[],
                 );
 
-                let output = quote! {
+                quote! {
                     #[allow(dead_code)]
                     impl #impl_generics #struct_name #ty_generics #where_clause {
                         #names_doc
                         pub const FIELD_NAMES: [&'static str; #field_count] = [#(#field_names),*];
                     }
-                };
-
-                output.into()
+                }
             }
-            _ => Error::new(span, "Builder works only on the structs with named fields")
-                .to_compile_error()
-                .into(),
+            _ => Error::new(
+                span,
+                "BuilderFieldNames works only on structs with named fields",
+            )
+            .to_compile_error(),
         },
-        _ => Error::new(span, "Builder derive works only on structs")
-            .to_compile_error()
-            .into(),
+        _ => Error::new(span, "BuilderFieldNames derive works only on structs").to_compile_error(),
     }
 }
 
@@ -291,7 +314,7 @@ struct ParsedField {
     parsed_field_type: ParsedFieldType,
     default_tokens: Option<proc_macro2::TokenStream>,
     visibility: Visibility,
-    docs: Vec<Attribute>,
+    docs: Vec<LitStr>,
 }
 
 impl ParsedField {
@@ -374,25 +397,99 @@ fn parse_field(field: &Field) -> ParsedField {
     }
 }
 
-/// The field's doc comments, i.e. its outer `#[doc = ...]` attributes. List
-/// forms such as `#[doc(hidden)]` are not documentation text and stay on the
-/// field alone.
-fn parse_field_docs(field: &Field) -> Vec<Attribute> {
-    field
+/// The field's doc comments as they are copied onto the items generated for
+/// it, without their fenced code blocks: rustdoc runs every code block of
+/// every item as a doctest, so a copied example would run once per generated
+/// item. The field itself keeps its docs whole.
+///
+/// Doc comments arrive as one `#[doc]` attribute per line (or one per block
+/// comment), so an open fence is tracked across attributes. A doc value that
+/// is not a string literal, such as `include_str!(..)`, cannot be inspected
+/// for examples and is not copied. List forms such as `#[doc(hidden)]` are not
+/// documentation text and stay on the field alone.
+fn parse_field_docs(field: &Field) -> Vec<LitStr> {
+    let mut open_fence: Option<CodeFence> = None;
+    let docs: Vec<LitStr> = field
         .attrs
         .iter()
-        .filter(|a| {
-            matches!(a.style, AttrStyle::Outer)
-                && a.path().is_ident("doc")
-                && matches!(a.meta, Meta::NameValue(_))
+        .filter(|a| matches!(a.style, AttrStyle::Outer) && a.path().is_ident("doc"))
+        .filter_map(|a| match &a.meta {
+            Meta::NameValue(MetaNameValue {
+                value:
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }),
+                ..
+            }) => Some(s),
+            _ => None,
         })
-        .cloned()
-        .collect()
+        .filter_map(|s| {
+            let text = s.value();
+            let kept: Vec<&str> = text
+                .split('\n')
+                .filter(|line| CodeFence::keeps_line(&mut open_fence, line))
+                .collect();
+            (!kept.is_empty()).then(|| LitStr::new(&kept.join("\n"), s.span()))
+        })
+        .collect();
+
+    if docs.iter().all(|s| s.value().trim().is_empty()) {
+        Vec::new()
+    } else {
+        docs
+    }
+}
+
+/// An open CommonMark code fence: a run of at least three backticks or
+/// tildes, closed by a run of the same character at least as long.
+struct CodeFence {
+    marker: char,
+    len: usize,
+}
+
+impl CodeFence {
+    /// A fence opening or closing on `line`, with the text after it (the info
+    /// string of an opening fence). Indentation is not limited to the three
+    /// spaces CommonMark allows, so a fence nested in a list item counts too.
+    fn parse(line: &str) -> Option<(Self, &str)> {
+        let trimmed = line.trim_start();
+        let marker = trimmed.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+        let rest = trimmed.trim_start_matches(marker);
+        let len = trimmed.len() - rest.len();
+        (len >= 3).then_some((Self { marker, len }, rest))
+    }
+
+    /// Advances the fence state over `line` and says whether the line is
+    /// outside every code block, fence lines included.
+    fn keeps_line(open: &mut Option<Self>, line: &str) -> bool {
+        match (open.as_ref(), Self::parse(line)) {
+            (None, Some((fence, info))) => {
+                // A backtick run followed by another backtick on the line is
+                // inline code, not a fence.
+                if fence.marker == '`' && info.contains('`') {
+                    return true;
+                }
+                *open = Some(fence);
+                false
+            }
+            (None, None) => true,
+            (Some(current), Some((fence, rest))) => {
+                if fence.marker == current.marker
+                    && fence.len >= current.len
+                    && rest.trim().is_empty()
+                {
+                    *open = None;
+                }
+                false
+            }
+            (Some(_), None) => false,
+        }
+    }
 }
 
 /// Doc attributes for a generated item: `summary` as the first paragraph,
 /// followed by the field's own doc comments as a separate paragraph.
-fn doc_block(summary: &str, field_docs: &[Attribute]) -> proc_macro2::TokenStream {
+fn doc_block(summary: &str, field_docs: &[LitStr]) -> proc_macro2::TokenStream {
     // `///` expands to a doc string with a leading space; matching it keeps
     // rustdoc's common-indent stripping uniform across the summary and the
     // propagated lines.
@@ -403,7 +500,7 @@ fn doc_block(summary: &str, field_docs: &[Attribute]) -> proc_macro2::TokenStrea
         quote! {
             #[doc = #summary]
             #[doc = ""]
-            #(#field_docs)*
+            #(#[doc = #field_docs])*
         }
     }
 }
@@ -414,7 +511,10 @@ fn generate_fields_functions(fields: &[ParsedField]) -> Vec<proc_macro2::TokenSt
 
 fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
     let field_name = &field.ident;
-    let set_field_name = format_ident!("{}", field_name);
+    // The mutable setter is the field's own identifier, raw prefix included:
+    // `format_ident!` strips `r#`, which would leave a keyword such as `type`
+    // as the method name. The prefixed names below rely on that stripping.
+    let set_field_name = field_name;
     let reset_field_name = format_ident!("reset_{}", field_name);
     let with_field_name = format_ident!("with_{}", field_name);
     let without_field_name = format_ident!("without_{}", field_name);
@@ -590,10 +690,7 @@ fn generate_factory_assignments(fields: &[ParsedField]) -> Vec<proc_macro2::Toke
 fn generate_init_struct(
     struct_name: &Ident,
     fields: &Vec<ParsedField>,
-    struct_generic_params: &Vec<&TypeParam>,
-    struct_generic_params_idents: &Vec<&Ident>,
-    struct_lifetime_params: &Vec<&LifetimeParam>,
-    struct_where_decl: Option<&syn::WhereClause>,
+    generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let init_struct_name = format_ident!("{}Init", struct_name);
 
@@ -613,84 +710,127 @@ fn generate_init_struct(
     );
     let generated_init_new_params = generate_init_new_params(&required_fields);
 
-    let mut init_fields_generic_params: Vec<&&TypeParam> = required_fields
-        .iter()
-        .filter_map(|f| {
-            struct_generic_params
-                .iter()
-                .find(|gp| field_contains_type(&f.parsed_field_type.field_type, gp))
+    let init_generics = init_struct_generics(&required_fields, generics);
+    let (_, init_ty_generics, _) = init_generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! {
+        #init_struct_doc
+        #[allow(dead_code)]
+        #[allow(clippy::needless_update)]
+        pub struct #init_struct_name #init_generics {
+            #(#generated_init_fields)*
+        }
+
+        #[allow(clippy::needless_update)]
+        impl #impl_generics From<#init_struct_name #init_ty_generics> for #struct_name #ty_generics #where_clause {
+            fn from(value: #init_struct_name #init_ty_generics) -> Self {
+                #struct_name::new(
+                    #(#generated_init_new_params)*
+                )
+            }
+        }
+    }
+}
+
+/// The generic parameters of `<S>Init`: those of the struct that its required
+/// fields use, lifetimes first.
+///
+/// The list is public API, and its order must not change for any struct that
+/// already compiles. That order comes from a per-field search: for each
+/// required field in turn, the first declared lifetime and the first declared
+/// type parameter that `field_contains_lifetime` and `field_contains_type`
+/// find in it. Parameters the search misses, such as a second parameter in one
+/// field, a const parameter or one inside an array, follow in declaration
+/// order. Listing everything in declaration order instead would turn
+/// `SInit<B, A>` of `S<A, B> { b: B, a: A }` into `SInit<A, B>`.
+///
+/// Bounds are kept and the struct's `where` clause is not. Defaults are
+/// dropped, because a parameter with a default must come after every one
+/// without, which the field order does not respect.
+fn init_struct_generics(required_fields: &[ParsedField], generics: &Generics) -> Generics {
+    let params: Vec<&GenericParam> = generics.params.iter().collect();
+    let is_lifetime = |i: &usize| matches!(params[*i], GenericParam::Lifetime(_));
+    let mut chosen: Vec<usize> = Vec::new();
+
+    for field in required_fields {
+        let first_lifetime = params.iter().position(|p| match p {
+            GenericParam::Lifetime(lt) => field_contains_lifetime(field, lt),
+            _ => false,
+        });
+        let first_type = params.iter().position(|p| match p {
+            GenericParam::Type(tp) => field_contains_type(&field.parsed_field_type.field_type, tp),
+            _ => false,
+        });
+        for i in first_lifetime.into_iter().chain(first_type) {
+            if !chosen.contains(&i) {
+                chosen.push(i);
+            }
+        }
+    }
+
+    let mut used = UsedNames::default();
+    for field in required_fields {
+        used.visit_type(&field.parsed_field_type.field_type);
+    }
+    for (i, param) in params.iter().enumerate() {
+        let is_used = match param {
+            GenericParam::Lifetime(lt) => used.lifetimes.contains(&lt.lifetime.ident),
+            GenericParam::Type(TypeParam { ident, .. })
+            | GenericParam::Const(ConstParam { ident, .. }) => used.paths.contains(ident),
+        };
+        if is_used && !chosen.contains(&i) {
+            chosen.push(i);
+        }
+    }
+
+    let (lifetimes, types_and_consts): (Vec<usize>, Vec<usize>) =
+        chosen.into_iter().partition(is_lifetime);
+    let params = lifetimes
+        .into_iter()
+        .chain(types_and_consts)
+        .map(|i| match params[i] {
+            GenericParam::Type(tp) => GenericParam::Type(TypeParam {
+                default: None,
+                ..tp.clone()
+            }),
+            GenericParam::Const(cp) => GenericParam::Const(ConstParam {
+                default: None,
+                ..cp.clone()
+            }),
+            lt @ GenericParam::Lifetime(_) => lt.clone(),
         })
         .collect();
 
-    init_fields_generic_params.dedup_by_key(|tp| &tp.ident);
+    Generics {
+        params,
+        ..Generics::default()
+    }
+}
 
-    let init_fields_generic_params_idents: Vec<&Ident> = init_fields_generic_params
-        .iter()
-        .map(|gp| &gp.ident)
-        .collect();
+/// The names a type can refer to a generic parameter by: every lifetime in
+/// it, and the first segment of every path that does not start with `::`,
+/// which is where a type or const parameter's name appears (`T`, `T::Item`,
+/// the `N` of `[u8; N]` or `Foo<N>`). Types inside macro invocations are not
+/// seen.
+#[derive(Default)]
+struct UsedNames {
+    lifetimes: HashSet<Ident>,
+    paths: HashSet<Ident>,
+}
 
-    let struct_generic_where_decl: proc_macro2::TokenStream = struct_where_decl
-        .as_ref()
-        .map_or(quote! {}, |wh| quote! { #wh });
+impl<'ast> Visit<'ast> for UsedNames {
+    fn visit_lifetime(&mut self, lifetime: &'ast Lifetime) {
+        self.lifetimes.insert(lifetime.ident.clone());
+    }
 
-    let mut init_fields_lifetime_params: Vec<&&LifetimeParam> = required_fields
-        .iter()
-        .filter_map(|f| {
-            struct_lifetime_params
-                .iter()
-                .find(|lt| field_contains_lifetime(f, lt))
-        })
-        .collect();
-
-    init_fields_lifetime_params.dedup_by_key(|lt| &lt.lifetime.ident);
-
-    if init_fields_generic_params.is_empty() && init_fields_lifetime_params.is_empty() {
-        let struct_name_with_possible_generics_lt =
-            if struct_generic_params.is_empty() && struct_lifetime_params.is_empty() {
-                quote! {
-                    #struct_name
-                }
-            } else {
-                quote! {
-                   #struct_name<'_>
-                }
-            };
-
-        quote! {
-            #init_struct_doc
-            #[allow(dead_code)]
-            #[allow(clippy::needless_update)]
-            pub struct #init_struct_name {
-                #(#generated_init_fields)*
-            }
-
-            #[allow(clippy::needless_update)]
-            impl From <#init_struct_name> for #struct_name_with_possible_generics_lt {
-                 fn from(value: #init_struct_name) -> Self {
-                    #struct_name::new(
-                        #(#generated_init_new_params)*
-                    )
-                 }
+    fn visit_path(&mut self, path: &'ast Path) {
+        if path.leading_colon.is_none() {
+            if let Some(first) = path.segments.first() {
+                self.paths.insert(first.ident.clone());
             }
         }
-    } else {
-        quote! {
-            #init_struct_doc
-            #[allow(dead_code)]
-            #[allow(clippy::needless_update)]
-            pub struct #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params),* > {
-                #(#generated_init_fields)*
-            }
-
-            #[allow(clippy::needless_update)]
-            impl < #(#struct_lifetime_params),* #(#struct_generic_params),* > From < #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params_idents),* > > for #struct_name< #(#struct_lifetime_params),* #(#struct_generic_params_idents),* > #struct_generic_where_decl {
-                  fn from(value: #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params_idents),*> ) -> Self {
-                    #struct_name::new(
-                        #(#generated_init_new_params)*
-                    )
-                 }
-            }
-        }
+        visit::visit_path(self, path);
     }
 }
 
@@ -703,13 +843,22 @@ fn generate_init_fields(
         .map(|f| {
             let param_name = &f.ident;
             let param_type = &f.parsed_field_type.field_type;
+            // `Self` in these docs means the struct they were written on, but
+            // here they sit on `<S>Init`, where it would resolve to the init
+            // struct and the link would break.
+            let struct_path = struct_name.to_string();
+            let docs: Vec<LitStr> = f
+                .docs
+                .iter()
+                .map(|s| LitStr::new(&rewrite_self_links(&s.value(), &struct_path), s.span()))
+                .collect();
             let field_doc = doc_block(
                 &format!(
                     "Value for the `{}` field of `{}`.",
                     param_name.unraw(),
                     struct_name.unraw()
                 ),
-                &f.docs,
+                &docs,
             );
 
             quote! {
@@ -718,6 +867,43 @@ fn generate_init_fields(
             }
         })
         .collect()
+}
+
+/// `text` with `Self` replaced by `target` wherever `Self` starts the target
+/// of a Markdown link, which is where rustdoc resolves intra-doc links:
+/// `[Self::x]`, `` [`Self::x`] ``, `[text](Self::x)`, `[text][Self::x]` and a
+/// reference definition `[label]: Self::x`. `Self` elsewhere, in prose or a
+/// code span, is left alone, as is a word merely starting with `Self`.
+fn rewrite_self_links(text: &str, target: &str) -> String {
+    const SELF: &str = "Self";
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(pos) = rest.find(SELF) {
+        let (before, from_self) = rest.split_at(pos);
+        let after = &from_self[SELF.len()..];
+        out.push_str(before);
+        let ends_path_segment =
+            after.is_empty() || after.starts_with("::") || after.starts_with([']', '`', ')', '>']);
+        if ends_path_segment && starts_link_target(&out) {
+            out.push_str(target);
+        } else {
+            out.push_str(SELF);
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Whether `before` ends where a link target begins: after an unescaped `[`,
+/// after `](` or `]:`, allowing the backticks, `<` and spaces that may
+/// precede the path.
+fn starts_link_target(before: &str) -> bool {
+    let before = before.trim_end_matches(['`', '<', ' ']);
+    match before.strip_suffix('[') {
+        Some(prefix) => !prefix.ends_with('\\'),
+        None => before.ends_with("](") || before.ends_with("]:"),
+    }
 }
 
 fn generate_init_new_params(fields: &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
@@ -738,6 +924,8 @@ fn parse_field_default_attr(field: &Field) -> Option<proc_macro2::TokenStream> {
         .iter()
         .find(|a| matches!(a.style, AttrStyle::Outer) && a.path().is_ident("default"))
         .and_then(|a| match &a.meta {
+            // A string holds the default expression as source text; an
+            // unparsable one becomes a compile error spanned on the string.
             Meta::NameValue(MetaNameValue {
                 value:
                     Expr::Lit(ExprLit {
@@ -745,22 +933,15 @@ fn parse_field_default_attr(field: &Field) -> Option<proc_macro2::TokenStream> {
                     }),
                 ..
             }) => Some(
-                // An unparsable default becomes a compile error spanned on the
-                // attribute's string, in place of the default expression.
                 s.parse::<proc_macro2::TokenStream>()
                     .unwrap_or_else(|e| e.to_compile_error()),
             ),
-            // Dropping `#[default = 10]` would silently make the field
-            // required, so it is an error in place of the default. The path
-            // and list forms stay ignored: other derives (SmartDefault, for
-            // one) share the `default` attribute name.
-            Meta::NameValue(_) => Some(
-                Error::new_spanned(
-                    a,
-                    "expected a string literal: `#[default = \"<expression>\"]`",
-                )
-                .to_compile_error(),
-            ),
+            // Any other value is the default itself: `#[default = 100]` is
+            // `100`. This is also how SmartDefault reads the same attribute,
+            // so a field carrying both derives gets one default from each.
+            Meta::NameValue(MetaNameValue { value, .. }) => Some(value.to_token_stream()),
+            // `#[default]` and `#[default(...)]` belong to other derives
+            // (SmartDefault's list form, for one) and leave the field as is.
             _ => None,
         })
 }
@@ -804,5 +985,185 @@ fn field_contains_lifetime_type(field_type: &Type, lt: &LifetimeParam) -> bool {
             _ => false,
         }),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field_names_error(input: &str) -> String {
+        field_names_impl(syn::parse_str(input).expect("test input is a valid item")).to_string()
+    }
+
+    /// The doc lines `parse_field_docs` copies from the only field of `src`.
+    fn copied_doc_lines(src: &str) -> Vec<String> {
+        let item: ItemStruct = syn::parse_str(src).expect("test input is a valid struct");
+        let field = item.fields.iter().next().expect("test struct has a field");
+        parse_field_docs(field)
+            .iter()
+            .flat_map(|s| s.value().split('\n').map(str::to_owned).collect::<Vec<_>>())
+            .collect()
+    }
+
+    #[test]
+    fn fenced_blocks_are_not_copied() {
+        let src = "struct S {
+            /// Before.
+            ///
+            /// ```
+            /// let x = 1;
+            /// ```
+            ///
+            /// Between.
+            /// ~~~rust,no_run
+            /// let y = 2;
+            /// ~~~
+            /// After.
+            x: i32,
+        }";
+        assert_eq!(
+            copied_doc_lines(src),
+            [" Before.", "", "", " Between.", " After."]
+        );
+    }
+
+    #[test]
+    fn a_fence_closes_only_on_its_own_marker() {
+        let src = "struct S {
+            /// Text.
+            /// ````markdown
+            /// ```
+            /// ~~~
+            /// ````
+            /// Kept.
+            x: i32,
+        }";
+        assert_eq!(copied_doc_lines(src), [" Text.", " Kept."]);
+    }
+
+    #[test]
+    fn fences_are_tracked_inside_a_block_doc_comment() {
+        let src = "struct S {
+            /** Text.
+            ```
+            let x = 1;
+            ```
+            Kept. */
+            x: i32,
+        }";
+        let lines = copied_doc_lines(src);
+        assert!(
+            lines
+                .iter()
+                .all(|l| !l.contains("```") && !l.contains("let x")),
+            "{lines:?}"
+        );
+        assert!(lines.iter().any(|l| l.contains("Kept.")), "{lines:?}");
+    }
+
+    #[test]
+    fn an_unclosed_fence_runs_to_the_end_of_the_docs() {
+        let src = "struct S {
+            /// Text.
+            /// ```
+            /// let x = 1;
+            x: i32,
+        }";
+        assert_eq!(copied_doc_lines(src), [" Text."]);
+    }
+
+    #[test]
+    fn inline_code_is_not_a_fence() {
+        let src = "struct S {
+            /// ``` inline ``` and `code`.
+            /// Kept.
+            x: i32,
+        }";
+        assert_eq!(
+            copied_doc_lines(src),
+            [" ``` inline ``` and `code`.", " Kept."]
+        );
+    }
+
+    #[test]
+    fn docs_that_are_only_a_code_block_are_not_copied() {
+        let src = "struct S {
+            ///
+            /// ```
+            /// let x = 1;
+            /// ```
+            ///
+            x: i32,
+        }";
+        assert!(copied_doc_lines(src).is_empty());
+    }
+
+    #[test]
+    fn non_literal_docs_are_not_copied() {
+        let src = r#"struct S {
+            /// Kept.
+            #[doc = concat!("Not ", "inspected.")]
+            #[doc(hidden)]
+            x: i32,
+        }"#;
+        assert_eq!(copied_doc_lines(src), [" Kept."]);
+    }
+
+    #[test]
+    fn self_links_point_at_the_struct() {
+        for (doc, expected) in [
+            ("Uses [`Self::helper`].", "Uses [`Job::helper`]."),
+            ("Uses [Self::helper].", "Uses [Job::helper]."),
+            ("See [this](Self::helper).", "See [this](Job::helper)."),
+            ("See [this](<Self::helper>).", "See [this](<Job::helper>)."),
+            ("See [this][Self::helper].", "See [this][Job::helper]."),
+            ("Part of [`Self`] and [Self].", "Part of [`Job`] and [Job]."),
+            ("[h]: Self::helper", "[h]: Job::helper"),
+            ("[a](Self::a), [b](Self::b)", "[a](Job::a), [b](Job::b)"),
+        ] {
+            assert_eq!(rewrite_self_links(doc, "Job"), expected);
+        }
+    }
+
+    #[test]
+    fn self_outside_link_targets_is_kept() {
+        for doc in [
+            "Self::helper in prose, and `Self::helper` in code.",
+            "Links to [SelfDescribing] and [Self-evident truths].",
+            "An escaped \\[Self::helper] is not a link.",
+            "[see Self::helper] is link text, not a target.",
+        ] {
+            assert_eq!(rewrite_self_links(doc, "Job"), doc);
+        }
+    }
+
+    #[test]
+    fn init_fields_link_to_the_struct_and_methods_keep_self() {
+        let item: ItemStruct = syn::parse_str(
+            "struct Job {
+                /// Checked by [`Self::helper`].
+                name: String,
+            }",
+        )
+        .expect("test input is a valid struct");
+        let Fields::Named(named) = &item.fields else {
+            unreachable!("test struct has named fields")
+        };
+        let fields = parse_fields(named);
+        let init_fields = generate_init_fields(&item.ident, &fields);
+        let init = quote!(#(#init_fields)*).to_string();
+        assert!(init.contains("[`Job::helper`]"), "{init}");
+        let methods = generate_field_functions(&fields[0]).to_string();
+        assert!(methods.contains("[`Self::helper`]"), "{methods}");
+    }
+
+    #[test]
+    fn field_names_errors_name_their_derive() {
+        for input in ["enum E { A }", "struct T(i32);", "struct U;"] {
+            let error = field_names_error(input);
+            assert!(error.contains("compile_error"), "{input}: {error}");
+            assert!(error.contains("BuilderFieldNames"), "{input}: {error}");
+        }
     }
 }

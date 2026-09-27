@@ -20,6 +20,8 @@ Add this to your `Cargo.toml`:
 rsb_derive = "0.5"
 ```
 
+The minimum supported Rust version is 1.71.
+
 The macros generates the following functions and instances for your structures:
 - `with/without/opt_<field_name>` : immutable setters for fields (`opt` is an additional setter for `Option<>` input argument)
 - `<field_name>/reset/mopt_<field_name>` : mutable setters for fields (`mopt` is an additional setter for `Option<>` input argument)
@@ -91,15 +93,11 @@ let mut s1 : MyStructure =
     );
 
 s1
-    .opt_field1("hey".into()) // no prefix with for mutable setter    
+    .opt_field1("hey".into()) // no `with` prefix for mutable setters
     .opt_field2(10)
-    .field2(15)
+    .req_field2(15)
     .reset_opt_field2(); // mutable reset function for optional fields
-
-    
-
-
-``` 
+```
 
 ### Defaults
 
@@ -126,11 +124,67 @@ let my_struct : StructWithDefault = StructWithDefault::from(
 );
 ```
 
+The value of `default` is read like this:
+- a string holds an expression, so `#[default="10"]` and `#[default="Some(11)"]` are the source code of the value;
+- any other literal is the value itself: `#[default = 100]`, `#[default = 12.5]`, `#[default = true]`;
+- `#[default]` and `#[default(...)]` are left to other derives, like `SmartDefault`, and the field stays required.
+
+```rust
+#[derive(Debug, Clone, PartialEq, Builder)]
+struct Settings {
+    pub name: String,
+    #[default = 100]
+    pub limit: u32,
+    #[default = true]
+    pub enabled: bool,
+}
+
+let settings = Settings::new("test".into());
+assert_eq!((settings.limit, settings.enabled), (100, true));
+```
+
+Be aware this changed in 0.5.2. Before it, a non-string literal like `#[default = true]` was ignored
+and the field stayed required. Now such fields are not in `new()` and `Init` anymore, so remove them from these calls.
+
 ### Documentation
 
 Everything the macro generates has doc comments: a summary line, plus the doc comments
 of the field it works with. So you can use it on public structs in crates
 with `#![deny(missing_docs)]`.
+
+Code blocks in field docs stay on the field only and are not copied to the generated items,
+otherwise rustdoc would run the same example as a doctest once per item.
+`Self::` links in field docs are rewritten on `Init` fields, so they still point to your struct.
+
+### Raw identifiers and generics
+
+Fields with raw identifiers are supported. The mutable setter keeps the `r#` prefix,
+other functions drop it:
+
+```rust
+#[derive(Debug, Clone, Builder)]
+struct Rule {
+    pub r#type: String,
+    pub r#match: Option<i32>,
+}
+
+let mut rule = Rule::new("word".into()).with_type("number".into()).with_match(1);
+rule.r#type("text".into()).reset_match();
+```
+
+Generic structs work with lifetimes, type parameters, const generics and defaults for them,
+also all mixed together:
+
+```rust
+#[derive(Debug, Clone, Builder)]
+struct Buffer<'a, T, const N: usize = 2> {
+    pub name: &'a str,
+    pub items: [T; N],
+    pub label: Option<String>,
+}
+
+let buffer: Buffer<i32> = Buffer::new("buf", [1, 2]).with_label("numbers".into());
+```
 
 ## Field names
 
@@ -164,7 +218,7 @@ assert_eq!(Wrapper::<i32>::FIELD_NAMES, ["inner"]); // `Wrapper::FIELD_NAMES` do
 
 ## Example
 
-Full example available [here](rsb_test/examples/builder.rs), you can run it with:
+Full example available [here](https://github.com/abdolence/rust-struct-builder/blob/master/rsb_test/examples/builder.rs), you can run it from the repository with:
 
 ```sh
 cargo run -p rsb_test --example builder
