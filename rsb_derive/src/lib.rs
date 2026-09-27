@@ -67,6 +67,7 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::*;
+use syn::ext::IdentExt;
 use syn::*;
 
 #[proc_macro_derive(Builder, attributes(default))]
@@ -108,7 +109,7 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
 
                 let struct_fields = parse_fields(named_fields);
 
-                let generated_factory_method = generate_factory_method(&struct_fields);
+                let generated_factory_method = generate_factory_method(struct_name, &struct_fields);
                 let generated_fields_methods = generate_fields_functions(&struct_fields);
 
                 let generated_aux_init_struct = generate_init_struct(
@@ -182,6 +183,7 @@ struct ParsedField {
     parsed_field_type: ParsedFieldType,
     default_tokens: Option<proc_macro2::TokenStream>,
     visibility: Visibility,
+    docs: Vec<Attribute>,
 }
 
 impl ParsedField {
@@ -260,6 +262,41 @@ fn parse_field(field: &Field) -> ParsedField {
         parsed_field_type: parse_field_type(&field.ty),
         default_tokens: parse_field_default_attr(field),
         visibility: field.vis.clone(),
+        docs: parse_field_docs(field),
+    }
+}
+
+/// The field's doc comments, i.e. its outer `#[doc = ...]` attributes. List
+/// forms such as `#[doc(hidden)]` are not documentation text and stay on the
+/// field alone.
+fn parse_field_docs(field: &Field) -> Vec<Attribute> {
+    field
+        .attrs
+        .iter()
+        .filter(|a| {
+            matches!(a.style, AttrStyle::Outer)
+                && a.path().is_ident("doc")
+                && matches!(a.meta, Meta::NameValue(_))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Doc attributes for a generated item: `summary` as the first paragraph,
+/// followed by the field's own doc comments as a separate paragraph.
+fn doc_block(summary: &str, field_docs: &[Attribute]) -> proc_macro2::TokenStream {
+    // `///` expands to a doc string with a leading space; matching it keeps
+    // rustdoc's common-indent stripping uniform across the summary and the
+    // propagated lines.
+    let summary = format!(" {summary}");
+    if field_docs.is_empty() {
+        quote! { #[doc = #summary] }
+    } else {
+        quote! {
+            #[doc = #summary]
+            #[doc = ""]
+            #(#field_docs)*
+        }
     }
 }
 
@@ -279,30 +316,48 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
     let field_type = &field.parsed_field_type.field_type;
     let field_visibility = &field.visibility;
 
+    let shown_name = field_name.unraw();
+    let doc = |summary: String| doc_block(&summary, &field.docs);
+
     match field.parsed_field_type.parsed_type.as_ref() {
         Some(ParsedType::OptionalType(ga_type_box)) => {
             let parsed_ga_field_type: &ParsedFieldType = ga_type_box;
             let ga_type = &parsed_ga_field_type.field_type;
 
+            let set_doc = doc(format!("Sets `{shown_name}` to `Some(value)`."));
+            let reset_doc = doc(format!("Sets `{shown_name}` to `None`."));
+            let mut_opt_doc = doc(format!("Sets `{shown_name}` to the given `Option`."));
+            let with_doc = doc(format!(
+                "Returns `self` with `{shown_name}` set to `Some(value)`."
+            ));
+            let without_doc = doc(format!("Returns `self` with `{shown_name}` set to `None`."));
+            let opt_doc = doc(format!(
+                "Returns `self` with `{shown_name}` set to the given `Option`."
+            ));
+
             quote! {
+                #set_doc
                 #[inline]
                 #field_visibility fn #set_field_name(&mut self, value : #ga_type) -> &mut Self {
                     self.#field_name = Some(value);
                     self
                 }
 
+                #reset_doc
                 #[inline]
                 #field_visibility fn #reset_field_name(&mut self) -> &mut Self {
                     self.#field_name = None;
                     self
                 }
 
+                #mut_opt_doc
                 #[inline]
                 #field_visibility fn #mut_opt_field_name(&mut self, value : #field_type) -> &mut Self {
                     self.#field_name = value;
                     self
                 }
 
+                #with_doc
                 #[inline]
                 #field_visibility fn #with_field_name(self, value : #ga_type) -> Self {
                     Self {
@@ -311,6 +366,7 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
                     }
                 }
 
+                #without_doc
                 #[inline]
                 #field_visibility fn #without_field_name(self) -> Self {
                     Self {
@@ -319,6 +375,7 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
                     }
                 }
 
+                #opt_doc
                 #[inline]
                 #field_visibility fn #opt_field_name(self, value : #field_type) -> Self {
                     Self {
@@ -329,13 +386,20 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
             }
         }
         _ => {
+            let set_doc = doc(format!("Sets `{shown_name}` to `value`."));
+            let with_doc = doc(format!(
+                "Returns `self` with `{shown_name}` set to `value`."
+            ));
+
             quote! {
+                #set_doc
                 #[inline]
                 #field_visibility fn #set_field_name(&mut self, value : #field_type) -> &mut Self {
                     self.#field_name = value;
                     self
                 }
 
+                #with_doc
                 #[inline]
                 #field_visibility fn #with_field_name(self, value : #field_type) -> Self {
                     Self {
@@ -348,7 +412,10 @@ fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
     }
 }
 
-fn generate_factory_method(fields: &Vec<ParsedField>) -> proc_macro2::TokenStream {
+fn generate_factory_method(
+    struct_name: &Ident,
+    fields: &Vec<ParsedField>,
+) -> proc_macro2::TokenStream {
     let required_fields: Vec<ParsedField> = fields
         .clone()
         .into_iter()
@@ -357,8 +424,17 @@ fn generate_factory_method(fields: &Vec<ParsedField>) -> proc_macro2::TokenStrea
 
     let generated_new_params = generate_new_params(&required_fields);
     let generated_factory_assignments = generate_factory_assignments(fields);
+    let new_doc = doc_block(
+        &format!(
+            "Creates a new `{}` from its required fields. `Option` fields start as `None`, \
+             and fields with `#[default]` take their default.",
+            struct_name.unraw()
+        ),
+        &[],
+    );
 
     quote! {
+        #new_doc
         pub fn new(#(#generated_new_params)*) -> Self {
             Self {
                 #(#generated_factory_assignments)*
@@ -419,7 +495,14 @@ fn generate_init_struct(
         .filter(|f| f.is_required_field())
         .collect();
 
-    let generated_init_fields = generate_init_fields(&required_fields);
+    let generated_init_fields = generate_init_fields(struct_name, &required_fields);
+    let init_struct_doc = doc_block(
+        &format!(
+            "Required fields of `{0}`; convert with `{0}::from` or `.into()`.",
+            struct_name.unraw()
+        ),
+        &[],
+    );
     let generated_init_new_params = generate_init_new_params(&required_fields);
 
     let mut init_fields_generic_params: Vec<&&TypeParam> = required_fields
@@ -466,6 +549,7 @@ fn generate_init_struct(
             };
 
         quote! {
+            #init_struct_doc
             #[allow(dead_code)]
             #[allow(clippy::needless_update)]
             pub struct #init_struct_name {
@@ -483,6 +567,7 @@ fn generate_init_struct(
         }
     } else {
         quote! {
+            #init_struct_doc
             #[allow(dead_code)]
             #[allow(clippy::needless_update)]
             pub struct #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params),* > {
@@ -501,14 +586,26 @@ fn generate_init_struct(
     }
 }
 
-fn generate_init_fields(fields: &Vec<ParsedField>) -> Vec<proc_macro2::TokenStream> {
+fn generate_init_fields(
+    struct_name: &Ident,
+    fields: &Vec<ParsedField>,
+) -> Vec<proc_macro2::TokenStream> {
     fields
         .iter()
         .map(|f| {
             let param_name = &f.ident;
             let param_type = &f.parsed_field_type.field_type;
+            let field_doc = doc_block(
+                &format!(
+                    "Value for the `{}` field of `{}`.",
+                    param_name.unraw(),
+                    struct_name.unraw()
+                ),
+                &f.docs,
+            );
 
             quote! {
+                #field_doc
                 pub #param_name : #param_type,
             }
         })
@@ -544,6 +641,17 @@ fn parse_field_default_attr(field: &Field) -> Option<proc_macro2::TokenStream> {
                 // attribute's string, in place of the default expression.
                 s.parse::<proc_macro2::TokenStream>()
                     .unwrap_or_else(|e| e.to_compile_error()),
+            ),
+            // Dropping `#[default = 10]` would silently make the field
+            // required, so it is an error in place of the default. The path
+            // and list forms stay ignored: other derives (SmartDefault, for
+            // one) share the `default` attribute name.
+            Meta::NameValue(_) => Some(
+                Error::new_spanned(
+                    a,
+                    "expected a string literal: `#[default = \"<expression>\"]`",
+                )
+                .to_compile_error(),
             ),
             _ => None,
         })

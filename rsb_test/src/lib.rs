@@ -1,3 +1,79 @@
+#[deny(missing_docs)]
+pub mod documented {
+    //! Builders for public structs, compiled under `deny(missing_docs)`: every
+    //! item the derive generates must carry docs of its own.
+
+    use rsb_derive::Builder;
+
+    /// A network endpoint.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct Endpoint {
+        /// Host name or IP address.
+        pub host: String,
+        /// TCP port.
+        ///
+        /// Zero is not a valid port.
+        pub port: u16,
+        /// Request timeout in seconds.
+        pub timeout_secs: Option<u64>,
+    }
+
+    /// A value with an optional label.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct Tagged<T> {
+        /// The wrapped value.
+        pub value: T,
+        /// Label shown next to the value.
+        pub label: Option<String>,
+    }
+
+    /// A struct whose fields are not all documented.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct PartlyDocumented {
+        /// Display name.
+        pub name: String,
+        // The allow covers only the field itself; the builder items generated
+        // for it are still checked.
+        #[allow(missing_docs)]
+        pub count: i32,
+        #[allow(missing_docs)]
+        pub note: Option<String>,
+    }
+
+    /// A struct with a defaulted field.
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    pub struct WithDefault {
+        /// Service name.
+        pub service: String,
+        /// Number of retries before giving up.
+        #[default = "3"]
+        pub retries: u32,
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn documented_builders_build() {
+            let endpoint: Endpoint = EndpointInit {
+                host: "localhost".into(),
+                port: 8080,
+            }
+            .into();
+            assert_eq!(endpoint.with_timeout_secs(5).timeout_secs, Some(5));
+
+            let tagged = Tagged::new(1).with_label("one".into());
+            assert_eq!(tagged.label.as_deref(), Some("one"));
+
+            let partly = PartlyDocumented::new("n".into(), 1).with_note("x".into());
+            assert_eq!(partly.count, 1);
+
+            assert_eq!(WithDefault::new("svc".into()).retries, 3);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
