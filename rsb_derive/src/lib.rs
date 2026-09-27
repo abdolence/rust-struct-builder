@@ -128,7 +128,9 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::*;
+use std::collections::HashSet;
 use syn::ext::IdentExt;
+use syn::visit::{self, Visit};
 use syn::*;
 
 #[proc_macro_derive(Builder, attributes(default))]
@@ -139,65 +141,20 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
         Item::Struct(ref struct_item) => match struct_item.fields {
             Fields::Named(ref named_fields) => {
                 let struct_name = &struct_item.ident;
-                let struct_generic_params: Vec<&TypeParam> = struct_item
-                    .generics
-                    .params
-                    .iter()
-                    .filter_map(|ga| match ga {
-                        GenericParam::Type(ref ty) => Some(ty),
-                        _ => None,
-                    })
-                    .collect();
-
-                let struct_generic_params_idents: Vec<&Ident> =
-                    struct_generic_params.iter().map(|gp| &gp.ident).collect();
-
-                let struct_lifetime_params: Vec<&LifetimeParam> = struct_item
-                    .generics
-                    .params
-                    .iter()
-                    .filter_map(|ga| match ga {
-                        GenericParam::Lifetime(ref lt) => Some(lt),
-                        _ => None,
-                    })
-                    .collect();
-
-                let struct_generic_where_decl: proc_macro2::TokenStream = struct_item
-                    .generics
-                    .where_clause
-                    .as_ref()
-                    .map_or(quote! {}, |wh| quote! { #wh });
+                let generics = &struct_item.generics;
+                let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
                 let struct_fields = parse_fields(named_fields);
 
                 let generated_factory_method = generate_factory_method(struct_name, &struct_fields);
                 let generated_fields_methods = generate_fields_functions(&struct_fields);
-
-                let generated_aux_init_struct = generate_init_struct(
-                    struct_name,
-                    &struct_fields,
-                    &struct_generic_params,
-                    &struct_generic_params_idents,
-                    &struct_lifetime_params,
-                    struct_item.generics.where_clause.as_ref(),
-                );
-
-                let struct_decl: proc_macro2::TokenStream = if struct_generic_params.is_empty()
-                    && struct_lifetime_params.is_empty()
-                {
-                    quote! {
-                        impl #struct_name
-                    }
-                } else {
-                    quote! {
-                        impl <#(#struct_lifetime_params),* #(#struct_generic_params),* > #struct_name <#(#struct_lifetime_params),*  #(#struct_generic_params_idents),* > #struct_generic_where_decl
-                    }
-                };
+                let generated_aux_init_struct =
+                    generate_init_struct(struct_name, &struct_fields, generics);
 
                 let output = quote! {
                     #[allow(dead_code)]
                     #[allow(clippy::needless_update)]
-                    #struct_decl {
+                    impl #impl_generics #struct_name #ty_generics #where_clause {
                         #generated_factory_method
                         #(#generated_fields_methods)*
                     }
@@ -490,7 +447,10 @@ fn generate_fields_functions(fields: &[ParsedField]) -> Vec<proc_macro2::TokenSt
 
 fn generate_field_functions(field: &ParsedField) -> proc_macro2::TokenStream {
     let field_name = &field.ident;
-    let set_field_name = format_ident!("{}", field_name);
+    // The mutable setter is the field's own identifier, raw prefix included:
+    // `format_ident!` strips `r#`, which would leave a keyword such as `type`
+    // as the method name. The prefixed names below rely on that stripping.
+    let set_field_name = field_name;
     let reset_field_name = format_ident!("reset_{}", field_name);
     let with_field_name = format_ident!("with_{}", field_name);
     let without_field_name = format_ident!("without_{}", field_name);
@@ -666,10 +626,7 @@ fn generate_factory_assignments(fields: &[ParsedField]) -> Vec<proc_macro2::Toke
 fn generate_init_struct(
     struct_name: &Ident,
     fields: &Vec<ParsedField>,
-    struct_generic_params: &Vec<&TypeParam>,
-    struct_generic_params_idents: &Vec<&Ident>,
-    struct_lifetime_params: &Vec<&LifetimeParam>,
-    struct_where_decl: Option<&syn::WhereClause>,
+    generics: &Generics,
 ) -> proc_macro2::TokenStream {
     let init_struct_name = format_ident!("{}Init", struct_name);
 
@@ -689,84 +646,127 @@ fn generate_init_struct(
     );
     let generated_init_new_params = generate_init_new_params(&required_fields);
 
-    let mut init_fields_generic_params: Vec<&&TypeParam> = required_fields
-        .iter()
-        .filter_map(|f| {
-            struct_generic_params
-                .iter()
-                .find(|gp| field_contains_type(&f.parsed_field_type.field_type, gp))
+    let init_generics = init_struct_generics(&required_fields, generics);
+    let (_, init_ty_generics, _) = init_generics.split_for_impl();
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
+    quote! {
+        #init_struct_doc
+        #[allow(dead_code)]
+        #[allow(clippy::needless_update)]
+        pub struct #init_struct_name #init_generics {
+            #(#generated_init_fields)*
+        }
+
+        #[allow(clippy::needless_update)]
+        impl #impl_generics From<#init_struct_name #init_ty_generics> for #struct_name #ty_generics #where_clause {
+            fn from(value: #init_struct_name #init_ty_generics) -> Self {
+                #struct_name::new(
+                    #(#generated_init_new_params)*
+                )
+            }
+        }
+    }
+}
+
+/// The generic parameters of `<S>Init`: those of the struct that its required
+/// fields use, lifetimes first.
+///
+/// The list is public API, and its order must not change for any struct that
+/// already compiles. That order comes from a per-field search: for each
+/// required field in turn, the first declared lifetime and the first declared
+/// type parameter that `field_contains_lifetime` and `field_contains_type`
+/// find in it. Parameters the search misses, such as a second parameter in one
+/// field, a const parameter or one inside an array, follow in declaration
+/// order. Listing everything in declaration order instead would turn
+/// `SInit<B, A>` of `S<A, B> { b: B, a: A }` into `SInit<A, B>`.
+///
+/// Bounds are kept and the struct's `where` clause is not. Defaults are
+/// dropped, because a parameter with a default must come after every one
+/// without, which the field order does not respect.
+fn init_struct_generics(required_fields: &[ParsedField], generics: &Generics) -> Generics {
+    let params: Vec<&GenericParam> = generics.params.iter().collect();
+    let is_lifetime = |i: &usize| matches!(params[*i], GenericParam::Lifetime(_));
+    let mut chosen: Vec<usize> = Vec::new();
+
+    for field in required_fields {
+        let first_lifetime = params.iter().position(|p| match p {
+            GenericParam::Lifetime(lt) => field_contains_lifetime(field, lt),
+            _ => false,
+        });
+        let first_type = params.iter().position(|p| match p {
+            GenericParam::Type(tp) => field_contains_type(&field.parsed_field_type.field_type, tp),
+            _ => false,
+        });
+        for i in first_lifetime.into_iter().chain(first_type) {
+            if !chosen.contains(&i) {
+                chosen.push(i);
+            }
+        }
+    }
+
+    let mut used = UsedNames::default();
+    for field in required_fields {
+        used.visit_type(&field.parsed_field_type.field_type);
+    }
+    for (i, param) in params.iter().enumerate() {
+        let is_used = match param {
+            GenericParam::Lifetime(lt) => used.lifetimes.contains(&lt.lifetime.ident),
+            GenericParam::Type(TypeParam { ident, .. })
+            | GenericParam::Const(ConstParam { ident, .. }) => used.paths.contains(ident),
+        };
+        if is_used && !chosen.contains(&i) {
+            chosen.push(i);
+        }
+    }
+
+    let (lifetimes, types_and_consts): (Vec<usize>, Vec<usize>) =
+        chosen.into_iter().partition(is_lifetime);
+    let params = lifetimes
+        .into_iter()
+        .chain(types_and_consts)
+        .map(|i| match params[i] {
+            GenericParam::Type(tp) => GenericParam::Type(TypeParam {
+                default: None,
+                ..tp.clone()
+            }),
+            GenericParam::Const(cp) => GenericParam::Const(ConstParam {
+                default: None,
+                ..cp.clone()
+            }),
+            lt @ GenericParam::Lifetime(_) => lt.clone(),
         })
         .collect();
 
-    init_fields_generic_params.dedup_by_key(|tp| &tp.ident);
+    Generics {
+        params,
+        ..Generics::default()
+    }
+}
 
-    let init_fields_generic_params_idents: Vec<&Ident> = init_fields_generic_params
-        .iter()
-        .map(|gp| &gp.ident)
-        .collect();
+/// The names a type can refer to a generic parameter by: every lifetime in
+/// it, and the first segment of every path that does not start with `::`,
+/// which is where a type or const parameter's name appears (`T`, `T::Item`,
+/// the `N` of `[u8; N]` or `Foo<N>`). Types inside macro invocations are not
+/// seen.
+#[derive(Default)]
+struct UsedNames {
+    lifetimes: HashSet<Ident>,
+    paths: HashSet<Ident>,
+}
 
-    let struct_generic_where_decl: proc_macro2::TokenStream = struct_where_decl
-        .as_ref()
-        .map_or(quote! {}, |wh| quote! { #wh });
+impl<'ast> Visit<'ast> for UsedNames {
+    fn visit_lifetime(&mut self, lifetime: &'ast Lifetime) {
+        self.lifetimes.insert(lifetime.ident.clone());
+    }
 
-    let mut init_fields_lifetime_params: Vec<&&LifetimeParam> = required_fields
-        .iter()
-        .filter_map(|f| {
-            struct_lifetime_params
-                .iter()
-                .find(|lt| field_contains_lifetime(f, lt))
-        })
-        .collect();
-
-    init_fields_lifetime_params.dedup_by_key(|lt| &lt.lifetime.ident);
-
-    if init_fields_generic_params.is_empty() && init_fields_lifetime_params.is_empty() {
-        let struct_name_with_possible_generics_lt =
-            if struct_generic_params.is_empty() && struct_lifetime_params.is_empty() {
-                quote! {
-                    #struct_name
-                }
-            } else {
-                quote! {
-                   #struct_name<'_>
-                }
-            };
-
-        quote! {
-            #init_struct_doc
-            #[allow(dead_code)]
-            #[allow(clippy::needless_update)]
-            pub struct #init_struct_name {
-                #(#generated_init_fields)*
-            }
-
-            #[allow(clippy::needless_update)]
-            impl From <#init_struct_name> for #struct_name_with_possible_generics_lt {
-                 fn from(value: #init_struct_name) -> Self {
-                    #struct_name::new(
-                        #(#generated_init_new_params)*
-                    )
-                 }
+    fn visit_path(&mut self, path: &'ast Path) {
+        if path.leading_colon.is_none() {
+            if let Some(first) = path.segments.first() {
+                self.paths.insert(first.ident.clone());
             }
         }
-    } else {
-        quote! {
-            #init_struct_doc
-            #[allow(dead_code)]
-            #[allow(clippy::needless_update)]
-            pub struct #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params),* > {
-                #(#generated_init_fields)*
-            }
-
-            #[allow(clippy::needless_update)]
-            impl < #(#struct_lifetime_params),* #(#struct_generic_params),* > From < #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params_idents),* > > for #struct_name< #(#struct_lifetime_params),* #(#struct_generic_params_idents),* > #struct_generic_where_decl {
-                  fn from(value: #init_struct_name< #(#init_fields_lifetime_params),* #(#init_fields_generic_params_idents),*> ) -> Self {
-                    #struct_name::new(
-                        #(#generated_init_new_params)*
-                    )
-                 }
-            }
-        }
+        visit::visit_path(self, path);
     }
 }
 
