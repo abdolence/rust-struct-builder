@@ -738,6 +738,8 @@ fn parse_field_default_attr(field: &Field) -> Option<proc_macro2::TokenStream> {
         .iter()
         .find(|a| matches!(a.style, AttrStyle::Outer) && a.path().is_ident("default"))
         .and_then(|a| match &a.meta {
+            // A string holds the default expression as source text; an
+            // unparsable one becomes a compile error spanned on the string.
             Meta::NameValue(MetaNameValue {
                 value:
                     Expr::Lit(ExprLit {
@@ -745,22 +747,15 @@ fn parse_field_default_attr(field: &Field) -> Option<proc_macro2::TokenStream> {
                     }),
                 ..
             }) => Some(
-                // An unparsable default becomes a compile error spanned on the
-                // attribute's string, in place of the default expression.
                 s.parse::<proc_macro2::TokenStream>()
                     .unwrap_or_else(|e| e.to_compile_error()),
             ),
-            // Dropping `#[default = 10]` would silently make the field
-            // required, so it is an error in place of the default. The path
-            // and list forms stay ignored: other derives (SmartDefault, for
-            // one) share the `default` attribute name.
-            Meta::NameValue(_) => Some(
-                Error::new_spanned(
-                    a,
-                    "expected a string literal: `#[default = \"<expression>\"]`",
-                )
-                .to_compile_error(),
-            ),
+            // Any other value is the default itself: `#[default = 100]` is
+            // `100`. This is also how SmartDefault reads the same attribute,
+            // so a field carrying both derives gets one default from each.
+            Meta::NameValue(MetaNameValue { value, .. }) => Some(value.to_token_stream()),
+            // `#[default]` and `#[default(...)]` belong to other derives
+            // (SmartDefault's list form, for one) and leave the field as is.
             _ => None,
         })
 }

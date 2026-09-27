@@ -387,3 +387,74 @@ mod field_names_tests {
         assert_eq!(crate::documented::Header::FIELD_NAMES, ["name", "value"]);
     }
 }
+
+#[cfg(test)]
+mod literal_default_tests {
+    use rsb_derive::Builder;
+    use smart_default::SmartDefault;
+
+    #[derive(Debug, Clone, PartialEq, Builder)]
+    struct LiteralDefaults {
+        req: String,
+        #[default = 100]
+        int: i32,
+        #[default = 12.5]
+        float: f64,
+        #[default = true]
+        flag: bool,
+        #[default = 'x']
+        ch: char,
+        #[default = b'a']
+        byte: u8,
+        #[default = "Some(11)"]
+        opt_from_string: Option<i32>,
+    }
+
+    #[test]
+    fn non_string_literal_is_the_default_value() {
+        let s = LiteralDefaults::new("r".into());
+        assert_eq!(s.int, 100);
+        assert_eq!(s.float, 12.5);
+        assert!(s.flag);
+        assert_eq!(s.ch, 'x');
+        assert_eq!(s.byte, b'a');
+        assert_eq!(s.opt_from_string, Some(11));
+    }
+
+    #[test]
+    fn literal_defaulted_fields_are_not_in_init() {
+        let s: LiteralDefaults = LiteralDefaultsInit { req: "r".into() }.into();
+        assert_eq!(s.int, 100);
+        assert_eq!(s.with_int(1).int, 1);
+    }
+
+    /// SmartDefault reads the same `default` attribute: the name-value form
+    /// is a default for both derives, the list form only for SmartDefault.
+    #[derive(Debug, Clone, PartialEq, Builder, SmartDefault)]
+    struct SharedWithSmartDefault {
+        #[default = true]
+        flag: bool,
+        #[default = 100]
+        count: i32,
+        #[default(7)]
+        listed: i32,
+        name: Option<String>,
+    }
+
+    #[test]
+    fn literal_defaults_coexist_with_smart_default() {
+        let built = SharedWithSmartDefault::new(3);
+        assert!(built.flag);
+        assert_eq!(built.count, 100);
+        assert_eq!(built.listed, 3);
+        assert_eq!(built.name, None);
+
+        let defaulted = SharedWithSmartDefault::default();
+        assert!(defaulted.flag);
+        assert_eq!(defaulted.count, 100);
+        assert_eq!(defaulted.listed, 7);
+
+        let from_init: SharedWithSmartDefault = SharedWithSmartDefaultInit { listed: 7 }.into();
+        assert_eq!(from_init, defaulted);
+    }
+}
