@@ -220,6 +220,10 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(BuilderFieldNames)]
 pub fn struct_field_names_macro(input: TokenStream) -> TokenStream {
     let item: syn::Item = syn::parse(input).expect("failed to parse input");
+    field_names_impl(item).into()
+}
+
+fn field_names_impl(item: syn::Item) -> proc_macro2::TokenStream {
     let span = Span::call_site();
     match item {
         Item::Struct(ref struct_item) => match struct_item.fields {
@@ -244,23 +248,21 @@ pub fn struct_field_names_macro(input: TokenStream) -> TokenStream {
                     &[],
                 );
 
-                let output = quote! {
+                quote! {
                     #[allow(dead_code)]
                     impl #impl_generics #struct_name #ty_generics #where_clause {
                         #names_doc
                         pub const FIELD_NAMES: [&'static str; #field_count] = [#(#field_names),*];
                     }
-                };
-
-                output.into()
+                }
             }
-            _ => Error::new(span, "Builder works only on the structs with named fields")
-                .to_compile_error()
-                .into(),
+            _ => Error::new(
+                span,
+                "BuilderFieldNames works only on structs with named fields",
+            )
+            .to_compile_error(),
         },
-        _ => Error::new(span, "Builder derive works only on structs")
-            .to_compile_error()
-            .into(),
+        _ => Error::new(span, "BuilderFieldNames derive works only on structs").to_compile_error(),
     }
 }
 
@@ -799,5 +801,23 @@ fn field_contains_lifetime_type(field_type: &Type, lt: &LifetimeParam) -> bool {
             _ => false,
         }),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field_names_error(input: &str) -> String {
+        field_names_impl(syn::parse_str(input).expect("test input is a valid item")).to_string()
+    }
+
+    #[test]
+    fn field_names_errors_name_their_derive() {
+        for input in ["enum E { A }", "struct T(i32);", "struct U;"] {
+            let error = field_names_error(input);
+            assert!(error.contains("compile_error"), "{input}: {error}");
+            assert!(error.contains("BuilderFieldNames"), "{input}: {error}");
+        }
     }
 }
