@@ -10,6 +10,8 @@
 //! - To create new struct instances there is `::new` and an auxiliary init struct definition
 //!   with only required fields (to compensate the Rust's named params inability).
 //!
+//! The minimum supported Rust version is 1.71.
+//!
 //! ## Usage:
 //!
 //! ```
@@ -61,6 +63,30 @@
 //! }
 //! ```
 //!
+//! The value of `default` is read like this:
+//! - a string holds an expression, so `#[default="10"]` and `#[default="Some(11)"]` are the source code of the value;
+//! - any other literal is the value itself: `#[default = 100]`, `#[default = 12.5]`, `#[default = true]`;
+//! - `#[default]` and `#[default(...)]` are left to other derives, like `SmartDefault`, and the field stays required.
+//!
+//! ```
+//! use rsb_derive::Builder;
+//!
+//! #[derive(Debug, Clone, PartialEq, Builder)]
+//! struct Settings {
+//!     pub name: String,
+//!     #[default = 100]
+//!     pub limit: u32,
+//!     #[default = true]
+//!     pub enabled: bool,
+//! }
+//!
+//! let settings = Settings::new("test".into());
+//! assert_eq!((settings.limit, settings.enabled), (100, true));
+//! ```
+//!
+//! Be aware this changed in 0.5.2. Before it, a non-string literal like `#[default = true]` was ignored
+//! and the field stayed required. Now such fields are not in `new()` and `Init` anymore, so remove them from these calls.
+//!
 //! ## Documentation
 //!
 //! Everything the macro generates has doc comments: a summary line, plus the doc comments
@@ -83,6 +109,44 @@
 //!     }
 //! }
 //! # fn main() {}
+//! ```
+//!
+//! Code blocks in field docs stay on the field only and are not copied to the generated items,
+//! otherwise rustdoc would run the same example as a doctest once per item.
+//! `Self::` links in field docs are rewritten on `Init` fields, so they still point to your struct.
+//!
+//! ## Raw identifiers and generics
+//!
+//! Fields with raw identifiers are supported. The mutable setter keeps the `r#` prefix,
+//! other functions drop it:
+//!
+//! ```
+//! use rsb_derive::Builder;
+//!
+//! #[derive(Debug, Clone, Builder)]
+//! struct Rule {
+//!     pub r#type: String,
+//!     pub r#match: Option<i32>,
+//! }
+//!
+//! let mut rule = Rule::new("word".into()).with_type("number".into()).with_match(1);
+//! rule.r#type("text".into()).reset_match();
+//! ```
+//!
+//! Generic structs work with lifetimes, type parameters, const generics and defaults for them,
+//! also all mixed together:
+//!
+//! ```
+//! use rsb_derive::Builder;
+//!
+//! #[derive(Debug, Clone, Builder)]
+//! struct Buffer<'a, T, const N: usize = 2> {
+//!     pub name: &'a str,
+//!     pub items: [T; N],
+//!     pub label: Option<String>,
+//! }
+//!
+//! let buffer: Buffer<i32> = Buffer::new("buf", [1, 2]).with_label("numbers".into());
 //! ```
 //!
 //! ## Field names
