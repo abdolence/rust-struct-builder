@@ -67,7 +67,6 @@
 use proc_macro::TokenStream;
 use proc_macro2::Span;
 use quote::*;
-use std::ops::Index;
 use syn::*;
 
 #[proc_macro_derive(Builder, attributes(default))]
@@ -92,7 +91,7 @@ pub fn struct_builder_macro(input: TokenStream) -> TokenStream {
                 let struct_generic_params_idents: Vec<&Ident> =
                     struct_generic_params.iter().map(|gp| &gp.ident).collect();
 
-                let struct_lifetime_params: Vec<&LifetimeDef> = struct_item
+                let struct_lifetime_params: Vec<&LifetimeParam> = struct_item
                     .generics
                     .params
                     .iter()
@@ -414,7 +413,7 @@ fn generate_init_struct(
     fields: &Vec<ParsedField>,
     struct_generic_params: &Vec<&TypeParam>,
     struct_generic_params_idents: &Vec<&Ident>,
-    struct_lifetime_params: &Vec<&LifetimeDef>,
+    struct_lifetime_params: &Vec<&LifetimeParam>,
     struct_where_decl: Option<&syn::WhereClause>,
 ) -> proc_macro2::TokenStream {
     let init_struct_name = format_ident!("{}Init", struct_name);
@@ -449,7 +448,7 @@ fn generate_init_struct(
         .as_ref()
         .map_or(quote! {}, |wh| quote! { #wh });
 
-    let mut init_fields_lifetime_params: Vec<&&LifetimeDef> = required_fields
+    let mut init_fields_lifetime_params: Vec<&&LifetimeParam> = required_fields
         .iter()
         .map(|f| {
             struct_lifetime_params
@@ -539,33 +538,21 @@ fn parse_field_default_attr(field: &Field) -> Option<proc_macro2::TokenStream> {
     field
         .attrs
         .iter()
-        .find(|a| match a.style {
-            AttrStyle::Outer => a
-                .path
-                .segments
-                .first()
-                .iter()
-                .any(|s| s.ident.eq("default")),
-            _ => false,
-        })
-        .and_then(|a| {
-            let attr_tokens: &Vec<proc_macro2::TokenTree> = &a.tokens.clone().into_iter().collect();
-            if attr_tokens.len() > 1 {
-                match attr_tokens.last().unwrap() {
-                    proc_macro2::TokenTree::Literal(lit) => {
-                        let lit_str = format!("{}", lit);
-                        let lit_unquoted_str = lit_str.index(1..lit_str.len() - 1);
-                        let lit_stream: proc_macro2::TokenStream =
-                            syn::parse_str(lit_unquoted_str).unwrap();
-                        Some(quote! {
-                            #lit_stream
-                        })
-                    }
-                    _ => None,
-                }
-            } else {
-                None
-            }
+        .find(|a| matches!(a.style, AttrStyle::Outer) && a.path().is_ident("default"))
+        .and_then(|a| match &a.meta {
+            Meta::NameValue(MetaNameValue {
+                value:
+                    Expr::Lit(ExprLit {
+                        lit: Lit::Str(s), ..
+                    }),
+                ..
+            }) => Some(
+                // An unparsable default becomes a compile error spanned on the
+                // attribute's string, in place of the default expression.
+                s.parse::<proc_macro2::TokenStream>()
+                    .unwrap_or_else(|e| e.to_compile_error()),
+            ),
+            _ => None,
         })
 }
 
@@ -587,7 +574,7 @@ fn field_contains_type(field_type: &Type, tp: &TypeParam) -> bool {
     }
 }
 
-fn field_contains_lifetime(field: &ParsedField, lt: &LifetimeDef) -> bool {
+fn field_contains_lifetime(field: &ParsedField, lt: &LifetimeParam) -> bool {
     field
         .parsed_field_type
         .lifetime
@@ -597,7 +584,7 @@ fn field_contains_lifetime(field: &ParsedField, lt: &LifetimeDef) -> bool {
         || field_contains_lifetime_type(&field.parsed_field_type.field_type, lt)
 }
 
-fn field_contains_lifetime_type(field_type: &Type, lt: &LifetimeDef) -> bool {
+fn field_contains_lifetime_type(field_type: &Type, lt: &LifetimeParam) -> bool {
     match field_type {
         Type::Path(ref path) => path.path.segments.iter().any(|s| match s.arguments {
             PathArguments::AngleBracketed(ref params) => params.args.iter().any(|ga| match ga {
