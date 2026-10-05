@@ -680,7 +680,7 @@ fn generate_factory_assignments(fields: &[ParsedField]) -> Vec<proc_macro2::Toke
                 }
             } else {
                 quote! {
-                    #param_name : #param_name,
+                    #param_name,
                 }
             }
         })
