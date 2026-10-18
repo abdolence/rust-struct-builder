@@ -46,6 +46,24 @@
 //!   The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()`
 //!   functions from it.
 //!
+//! A struct without required fields gets no init struct, because it would be empty. Use `new()` instead:
+//!
+//! ```compile_fail,E0422
+//! use rsb_derive::Builder;
+//!
+//! #[derive(Builder)]
+//! struct Options {
+//!     pub retries: Option<u32>,
+//!     #[default = 10]
+//!     pub limit: u32,
+//! }
+//!
+//! let options = Options::new();
+//! let options: Options = OptionsInit {}.into();
+//! ```
+//!
+//! Be aware this changed in 0.6. Before it, such structs had an empty `Init` too.
+//!
 //! ## Defaults
 //!
 //! ```
@@ -699,6 +717,10 @@ fn generate_init_struct(
         .into_iter()
         .filter(|f| f.is_required_field())
         .collect();
+
+    if required_fields.is_empty() {
+        return proc_macro2::TokenStream::new();
+    }
 
     let generated_init_fields = generate_init_fields(struct_name, &required_fields);
     let init_struct_doc = doc_block(
