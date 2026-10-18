@@ -30,6 +30,9 @@ The macros generates the following functions and instances for your structures:
 The init structure generated as `<YourStructureName>Init`. So, you can use `from(...)` or `into()` 
 functions from it.
 
+A struct without required fields gets no init struct, because it would be empty. Use `new()` instead.
+Be aware this changed in 0.6. Before it, such structs had an empty `Init` too.
+
 ### Marking the derive attribute on your structures:
 
 ```rust

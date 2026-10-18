@@ -617,11 +617,11 @@ mod struct_shape_tests {
     #[test]
     fn generic_struct_without_required_fields() {
         let built: OnlyOptional<i32> = OnlyOptional::new();
-        let from_init: OnlyOptional<i32> = OnlyOptionalInit {}.into();
-        assert_eq!(built, from_init);
+        assert_eq!(built.o, None);
         assert_eq!(built.with_o(1).o, Some(1));
 
-        let refs: OnlyOptionalRef = OnlyOptionalRefInit {}.into();
+        let refs = OnlyOptionalRef::new();
+        assert_eq!((refs.a, refs.b), (None, None));
         let with = refs.with_a("a").with_b("b");
         assert_eq!((with.a, with.b), (Some("a"), Some("b")));
     }
